@@ -1,6 +1,4 @@
-#include "epanet2.h"
 #include "epanet2_2.h"
-#include "epanet2_enums.h"
 
 #define OPEN_EPANET_INP_ERROR 31
 

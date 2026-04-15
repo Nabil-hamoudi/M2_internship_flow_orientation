@@ -1,6 +1,4 @@
-#include "stdio.h"
 #include "stdlib.h"
-#include "epanet2.h"
 #include "epanet2_2.h"
 #include "epanet2_enums.h"
 #include "structure.h"
