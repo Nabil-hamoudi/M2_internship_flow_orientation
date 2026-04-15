@@ -1,6 +1,10 @@
 #define ALLOCATION_FAIL_GRAPH 20
 #define ALLOCATION_FAIL_SOMMETS 21
 #define ALLOCATION_FAIL_ARCS 22
+#define GRAPHE_NON_INIT 51
+#define ERREUR_FICHIER_OUTPUT_MATRICE_FLOW 52
+#define ERREUR_MATRICE_FLOW_ALLOC 53
+
 
 typedef double flotant;
 typedef int nbr;
@@ -24,6 +28,7 @@ struct sommet {
 	nbr degree;
 	flotant elevation;
 	flotant demande;
+	int marque;
 	struct arc_symmetrique *arcs;
 };
 
@@ -60,4 +65,6 @@ struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant long
 struct arc assignation_arc_oppose(struct arc* B);
 
 struct arc_symmetrique assignation_arc_symmetrique(struct arc* A, struct arc* B, struct sommet* source);
+
+void export_flow_matrix(struct graph *G, const char *filename, int source_destination);
 

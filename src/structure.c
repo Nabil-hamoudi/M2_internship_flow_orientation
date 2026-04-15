@@ -19,6 +19,7 @@ struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree
 	S.elevation = elevation;
 	S.degree = degree;
 	S.demande = demande;
+	S.marque = 0;
 	S.arcs = malloc((S.degree + degree_ajouter) * sizeof(struct arc_symmetrique));
 	if (S.arcs == NULL && S.degree > 0) exit(ALLOCATION_FAIL_SOMMETS);
 	return S;
@@ -64,5 +65,55 @@ struct arc_symmetrique assignation_arc_symmetrique(struct arc* A, struct arc* B,
 	};
 	return AB;
 }
+
+void export_flow_matrix(struct graph *G, const char *filename, int source_destination) {
+	if (G == NULL || G->sommets == NULL || G->arcs == NULL) exit(GRAPHE_NON_INIT);
+
+	FILE *file = fopen(filename, "w");
+	if (file == NULL) exit(ERREUR_FICHIER_OUTPUT_MATRICE_FLOW);
+	nbr n;
+	if (source_destination) {
+		n = G->nb_sommet - 2;
+	} else {
+		n = G->nb_sommet;
+	};
+
+	flotant **matrice = malloc(n * sizeof(flotant *));
+	if (matrice == NULL) {
+		fclose(file);
+		exit(ERREUR_MATRICE_FLOW_ALLOC); 
+	}
+
+	for (nbr i = 0; i < n; i++) {
+		matrice[i] = (flotant*) calloc(n, sizeof(flotant));
+		if (matrice[i] == NULL) {
+			fclose(file);
+			exit(ERREUR_MATRICE_FLOW_ALLOC);
+		}
+	}
+
+	for (nbr k = 0; k < G->nb_arcs; k++) {
+		struct arc *a = &G->arcs[k];
+		nbr index_source = a->source - G->sommets;
+		nbr index_destination = a->destination - G->sommets;
+		if (a->destination->type != DESTINATION && a->source->type != SOURCE) {
+			matrice[index_source][index_destination] = a->flow;
+		}
+	}
+
+	for (nbr i = 0; i < n; i++) {
+		for (nbr j = 0; j < n; j++) {
+			fprintf(file, "%.4f ", matrice[i][j]);
+		}
+		fprintf(file, "\n");
+	}
+
+	for (nbr i = 0; i < n; i++) {
+	free(matrice[i]);
+	}
+	free(matrice);
+	fclose(file);
+}
+
 
 
