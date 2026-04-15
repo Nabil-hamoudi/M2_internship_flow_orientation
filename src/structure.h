@@ -45,13 +45,15 @@ struct arc {
 struct graph {
 	nbr nb_sommet;
 	nbr nb_arcs;
+	struct sommet *sommet_source;
+	struct sommet *sommet_destination;
 	struct sommet *sommets;
 	struct arc *arcs;
 };
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs);
+struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire);
 
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, flotant elevation, flotant demande);
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant demande);
 
 struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination);
 

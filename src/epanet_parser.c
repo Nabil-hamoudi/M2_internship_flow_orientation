@@ -62,7 +62,16 @@ struct graph chargement_graph(EN_Project* ph) {
 	int nb_sommets, nb_arcs;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_sommets);
 	EN_getcount(*ph, EN_LINKCOUNT, &nb_arcs);
-	struct graph G = assignation_graph(nb_sommets, nb_arcs*2);
+
+	nbr degree_supp = 0;
+	double demande_temp;
+	for (int i=0; i < nb_sommets ; i++) {
+		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande_temp);
+		if (demande_temp != 0) {
+			degree_supp++;
+		};
+	}
+	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2);
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -78,7 +87,11 @@ struct graph chargement_graph(EN_Project* ph) {
 		type_node = parser_type_sommet(type_node);
 		EN_getnodevalue(*ph, i, EN_ELEVATION, &elevation);
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
-		G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], elevation, demande);
+		if (demande == 0) {
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, demande);
+		} else {
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, demande);
+		}
 		degrees[i-1] = 0;
 	}
 

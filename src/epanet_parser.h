@@ -10,5 +10,7 @@ enum type_arcs parser_type_arc(int type_epanet);
 
 EN_Project init_inp_file(char* input, char* log, char* binairy);
 
+void comput_flow(EN_Project* ph);
+
 struct graph chargement_graph(EN_Project* ph);
 
