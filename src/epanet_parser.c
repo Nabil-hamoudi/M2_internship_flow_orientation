@@ -2,6 +2,7 @@
 #include "epanet2_2.h"
 #include "epanet2_enums.h"
 #include "structure.h"
+#include "float.h"
 
 enum type_sommet parser_type_sommet(int type_epanet) {
 	switch (type_epanet) {
@@ -63,9 +64,11 @@ struct graph chargement_graph(EN_Project* ph) {
 
 	nbr degree_supp = 0;
 	double demande_temp;
-	for (int i=0; i < nb_sommets ; i++) {
+	int temp_type;
+	for (int i=1; i <= nb_sommets ; i++) {
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande_temp);
-		if (demande_temp != 0) {
+		EN_getnodetype(*ph, i, &temp_type);
+		if (demande_temp != 0 || temp_type == EN_RESERVOIR || temp_type == EN_TANK) {
 			degree_supp++;
 		};
 	}
@@ -84,7 +87,11 @@ struct graph chargement_graph(EN_Project* ph) {
 		EN_getnodetype(*ph, i, &type_node);
 		type_node = parser_type_sommet(type_node);
 		EN_getnodevalue(*ph, i, EN_ELEVATION, &elevation);
-		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
+		if (type_node == RESERVOIR || type_node == TANK) {
+			demande = -DBL_MAX;
+		} else {
+			EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
+		}
 		if (demande == 0) {
 			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, demande);
 		} else {
@@ -96,7 +103,6 @@ struct graph chargement_graph(EN_Project* ph) {
 	for (int j = 1, i = 0 ; j <= nb_arcs ; j++, i += 2) {
 		int noeud1, noeud2, type_epa;
 		double diametre, longueur, flow;
-		EN_getlinknodes(*ph, j, &noeud1, &noeud2);
 		EN_getlinknodes(*ph, j, &noeud1, &noeud2);
 		EN_getlinktype(*ph, j, &type_epa);
 		type_epa = parser_type_arc(type_epa);

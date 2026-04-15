@@ -92,7 +92,7 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 		}
 	}
 
-	for (nbr k = 0; k < G->nb_arcs; k++) {
+	for (nbr k = 0; k < n; k++) {
 		struct arc *a = &G->arcs[k];
 		nbr index_source = a->source - G->sommets;
 		nbr index_destination = a->destination - G->sommets;

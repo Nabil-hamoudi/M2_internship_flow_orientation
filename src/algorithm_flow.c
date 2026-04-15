@@ -18,8 +18,11 @@ void fix_capacite_flow(struct graph* reseau) {
 	for (int i=0; i < reseau->nb_arcs ; i++) {
 		if (reseau->arcs[i].diametre || reseau->arcs[i].longueur) {
 			reseau->arcs[i].flow = 0.0;
-			reseau->arcs[i].capacite = 3.1415 * pow((reseau->arcs[i].diametre*1000.0) / 2.0, 2) * reseau->arcs[i].longueur;
-		}
+			reseau->arcs[i].capacite = (3.1415 * pow((reseau->arcs[i].diametre*1000.0) / 2.0, 2) * reseau->arcs[i].longueur) * 264.172;
+		} else if (reseau->arcs[i].type == POMPE) {
+			reseau->arcs[i].flow = 0.0;
+			reseau->arcs[i].capacite = 10000.0;
+	}
 }
 }
 
@@ -66,12 +69,12 @@ void ajout_capacite_random(struct graph* reseau, float proportion_demande, float
 
 	for (nbr i=0; i < reseau->sommet_source->degree; i++) {
 		random_value = (((flotant) rand() / RAND_MAX) * 2) * proportion_source;
-		reseau->sommet_source->arcs[i].arc_sortant->capacite = reseau->sommet_source->arcs->arc_sortant->destination->demande * random_value;
+		reseau->sommet_source->arcs[i].arc_sortant->capacite = (reseau->sommet_source->arcs[i].arc_sortant->destination->demande*-1.0) * random_value;
 	}
 
 	for (int i=0; i < reseau->sommet_destination->degree; i++) {
 		random_value = (((flotant) rand() / RAND_MAX) * 2) * proportion_demande;
-		reseau->sommet_destination->arcs[i].arc_entrant->capacite = (reseau->sommet_destination->arcs->arc_entrant->source->demande*-1) * random_value;
+		reseau->sommet_destination->arcs[i].arc_entrant->capacite = (reseau->sommet_destination->arcs[i].arc_entrant->source->demande) * random_value;
 	}
 }
 
