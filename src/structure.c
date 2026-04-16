@@ -66,6 +66,22 @@ struct arc_symmetrique assignation_arc_symmetrique(struct arc* A, struct arc* B,
 	return AB;
 }
 
+int free_graph(struct graph *G) {
+	if (G == NULL) return GRAPHE_NON_INIT;
+	if (G->sommets != NULL) {
+		for (nbr i = 0; i < G->nb_sommet; i++) {
+			if (G->sommets[i].arcs != NULL) {
+				free(G->sommets[i].arcs);
+			}
+		}
+		free(G->sommets);
+	}
+	if (G->arcs != NULL) {
+		free(G->arcs);
+	}
+	return 0;
+}
+
 void export_flow_matrix(struct graph *G, const char *filename, int source_destination) {
 	if (G == NULL || G->sommets == NULL || G->arcs == NULL) exit(GRAPHE_NON_INIT);
 
@@ -99,8 +115,8 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 		if (a->destination->type != DESTINATION && a->source->type != SOURCE) {
 			matrice[index_source][index_destination] = a->flow;
 		}
-	}
-
+    }
+    fprintf(file, "%d\n", n);
 	for (nbr i = 0; i < n; i++) {
 		for (nbr j = 0; j < n; j++) {
 			fprintf(file, "%.4f ", matrice[i][j]);

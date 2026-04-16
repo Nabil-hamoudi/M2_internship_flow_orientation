@@ -66,5 +66,7 @@ struct arc assignation_arc_oppose(struct arc* B);
 
 struct arc_symmetrique assignation_arc_symmetrique(struct arc* A, struct arc* B, struct sommet* source);
 
+int free_graph(struct graph *G);
+
 void export_flow_matrix(struct graph *G, const char *filename, int source_destination);
 
