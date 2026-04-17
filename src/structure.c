@@ -88,10 +88,13 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 	FILE *file = fopen(filename, "w");
 	if (file == NULL) exit(ERREUR_FICHIER_OUTPUT_MATRICE_FLOW);
 	nbr n;
+	nbr n_arcs;
 	if (source_destination) {
 		n = G->nb_sommet - 2;
+		nbr n_arcs = G->nb_arcs - ((G->sommet_source->degree + G->sommet_destination->degree)*2);
 	} else {
 		n = G->nb_sommet;
+		n_arcs = G->nb_arcs;
 	};
 
 	flotant **matrice = malloc(n * sizeof(flotant *));
@@ -115,8 +118,10 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 		if (a->destination->type != DESTINATION && a->source->type != SOURCE) {
 			matrice[index_source][index_destination] = a->flow;
 		}
-    }
-    fprintf(file, "%d\n", n);
+	}
+
+	fprintf(file, "%d\n", n);
+	fprintf(file, "%d\n", n_arcs);
 	for (nbr i = 0; i < n; i++) {
 		for (nbr j = 0; j < n; j++) {
 			fprintf(file, "%.4f ", matrice[i][j]);
