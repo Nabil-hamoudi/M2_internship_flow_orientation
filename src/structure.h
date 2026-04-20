@@ -28,6 +28,7 @@ struct sommet {
 	nbr degree;
 	flotant elevation;
 	flotant demande;
+	flotant pression;
 	int marque;
 	struct arc_symmetrique *arcs;
 };
@@ -50,15 +51,19 @@ struct arc {
 struct graph {
 	nbr nb_sommet;
 	nbr nb_arcs;
+	flotant pression_requise;
+	flotant exposant_pression;
+	flotant demande_global;
+	flotant demande_multiplier;
 	struct sommet *sommet_source;
 	struct sommet *sommet_destination;
 	struct sommet *sommets;
 	struct arc *arcs;
 };
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire);
+struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier);
 
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant demande);
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant demande);
 
 struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination);
 

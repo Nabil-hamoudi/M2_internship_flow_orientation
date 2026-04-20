@@ -2,10 +2,14 @@
 # include "stdlib.h"
 # include "structure.h"
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire) {
+struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier) {
 	struct graph G;
 	G.nb_sommet = nb_sommet;
 	G.nb_arcs = nb_arcs;
+	G.pression_requise = pression_requise;
+	G.exposant_pression = exposant_pression;
+	G.demande_global = demande_global;
+	G.demande_multiplier = demande_multiplier;
 	G.sommets = malloc((G.nb_sommet+sommet_supplementaire) * sizeof(struct sommet));
 	if (G.sommets == NULL && G.nb_sommet > 0) exit(ALLOCATION_FAIL_GRAPH);
 	G.arcs = malloc((G.nb_arcs+arcs_supplementaire) * sizeof(struct arc));
@@ -13,11 +17,12 @@ struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplement
 	return G;
 }
 
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant demande) {
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant demande) {
 	struct sommet S;
 	S.type = type_s;
 	S.elevation = elevation;
 	S.degree = degree;
+	S.pression = pression;
 	S.demande = demande;
 	S.marque = 0;
 	S.arcs = malloc((S.degree + degree_ajouter) * sizeof(struct arc_symmetrique));
