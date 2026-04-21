@@ -5,8 +5,8 @@
 
 
 int main(int argc, char *argv[]) {
-	if (argc != 6) {
-		printf("Usage: %s <fichier.inp> <output_epanet.txt> <output_algo.txt> <proportion_source> <proportion_demande>\n", argv[0]);
+	if (argc != 7) {
+		printf("Usage: %s <fichier.inp> <output_epanet.txt> <output_algo.txt> <proportion_source> <proportion_demande> <proportion_demande_epa>\n", argv[0]);
 		return 1;
 	}
 	char *fichier_inp = argv[1];
@@ -22,8 +22,8 @@ int main(int argc, char *argv[]) {
 	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
 	fix_capacite_flow(&reseau_epanet);
 	ajout_source_destination(&reseau_epanet);
-	// ajout_capacite_random(&reseau_epanet, proportion_demande, proportion_source);
-	ajout_capacite_demande(&reseau_epanet, proportion_demande);
+	ajout_capacite_random(&reseau_epanet, proportion_demande, proportion_source);
+	// ajout_capacite_demande(&reseau_epanet, proportion_demande);
 	ajout_capacite_source(&reseau_epanet, proportion_source);
 	nullifier_flow(&reseau_epanet);
 
