@@ -55,6 +55,7 @@ struct graph {
 	flotant exposant_pression;
 	flotant demande_global;
 	flotant demande_multiplier;
+	flotant satifaisabilite;
 //	à ajouter
 //	flotant heure;
 //	pattern;
@@ -64,7 +65,7 @@ struct graph {
 	struct arc *arcs;
 };
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier);
+struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite);
 
 struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant demande);
 

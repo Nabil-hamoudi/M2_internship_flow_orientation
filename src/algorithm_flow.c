@@ -95,6 +95,32 @@ void nullifier_flow(struct graph* reseau) {
 	};
 }
 
+flotant compute_satisfaction_rate(struct graph* reseau) {
+	if (reseau == NULL || reseau->sommet_destination == NULL) return 0.0;
+
+	nbr deg = reseau->sommet_destination->degree;
+	if (deg == 0) return 0.0;
+
+	flotant total_satisfaction = 0.0;
+
+	for (int i = 0; i < deg; i++) {
+		struct arc *a = reseau->sommet_destination->arcs[i].arc_entrant;
+		if (a == NULL) { continue; }
+		flotant cap = a->capacite;
+		flotant flow = a->flow;
+
+		flotant s = 0.0;
+		if (cap > 0.0) {
+			s = flow / cap;
+			if (s < 0.0) s = 0.0;
+			else if (s > 1.0) s = 1.0;
+		}
+		total_satisfaction += s;
+	}
+
+	return total_satisfaction / (flotant) deg;
+}
+
 
 flotant parcours_ff(struct sommet *sommet, flotant flow) {
 	flotant flow_ajoutable, new_flot;
@@ -143,52 +169,7 @@ void compute_flow_ford_fukerson(struct graph* reseau) {
 		sommet->marque = 1;
 		result = parcours_ff(sommet, DBL_MAX);
 	};
+	reseau->satifaisabilite = compute_satisfaction_rate(reseau);
 }
 
-/**
- * Compute average satisfaction rate for all demands
- * Returns the average satisfaction rate (0.0 to 1.0)
- * satisfaction_rate = actual_flow / demanded_flow
- * Returns 0.0 if no demands exist
- */
-flotant compute_satisfaction_rate(struct graph* reseau) {
-	// Count the number of demands and sum satisfaction rates
-	nbr demand_count = 0;
-	flotant total_satisfaction = 0.0;
-	
-	for (int i = 0; i < reseau->nb_sommet; i++) {
-		if (reseau->sommets[i].demande > 0) {
-			// Find the flow going to this demand node
-			flotant actual_flow = 0.0;
-			
-			for (int j = 0; j < reseau->sommets[i].degree; j++) {
-				// Check the outgoing arc to destination
-				if (reseau->sommets[i].arcs[j].arc_sortant->destination->type == DESTINATION) {
-					actual_flow = reseau->sommets[i].arcs[j].arc_sortant->flow;
-					break;
-				}
-			}
-			
-			// Calculate satisfaction rate: flow / demand
-			flotant satisfaction = actual_flow / reseau->sommets[i].demande;
-			
-			// Clamp to [0, 1] in case of numerical errors
-			if (satisfaction < 0.0) {
-				satisfaction = 0.0;
-			} else if (satisfaction > 1.0) {
-				satisfaction = 1.0;
-			}
-			
-			total_satisfaction += satisfaction;
-			demand_count++;
-		}
-	}
-	
-	// Return average satisfaction rate
-	if (demand_count == 0) {
-		return 0.0;
-	}
-	
-	return total_satisfaction / demand_count;
-}
 

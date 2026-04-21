@@ -2,7 +2,7 @@
 # include "stdlib.h"
 # include "structure.h"
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier) {
+struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite) {
 	struct graph G;
 	G.nb_sommet = nb_sommet;
 	G.nb_arcs = nb_arcs;
@@ -10,6 +10,7 @@ struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplement
 	G.exposant_pression = exposant_pression;
 	G.demande_global = demande_global;
 	G.demande_multiplier = demande_multiplier;
+	G.satifaisabilite = satifaisabilite;
 	G.sommets = malloc((G.nb_sommet+sommet_supplementaire) * sizeof(struct sommet));
 	if (G.sommets == NULL && G.nb_sommet > 0) exit(ALLOCATION_FAIL_GRAPH);
 	G.arcs = malloc((G.nb_arcs+arcs_supplementaire) * sizeof(struct arc));
@@ -94,6 +95,9 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 	if (file == NULL) exit(ERREUR_FICHIER_OUTPUT_MATRICE_FLOW);
 	nbr n;
 	nbr n_arcs;
+	nbr n_arcs_non_nul = 0;
+	flotant efficacite = G->satifaisabilite;
+	nbr arcs_symmetrique = 0;
 	if (source_destination) {
 		n = G->nb_sommet - 2;
 		n_arcs = G->nb_arcs - ((G->sommet_source->degree + G->sommet_destination->degree)*2);
@@ -114,6 +118,14 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 			fclose(file);
 			exit(ERREUR_MATRICE_FLOW_ALLOC);
 		}
+		
+		if (G->sommets[i].type != SOURCE && G->sommets[i].type != DESTINATION) {
+			for (nbr j = 0; j < G->sommets[i].degree; j++) {
+				if (G->sommets[i].arcs[j].arc_entrant->flow > 0.0 &&  G->sommets[i].arcs[j].arc_sortant->flow > 0.0 && G->sommets[i].arcs[j].arc_sortant->destination - G->sommets > i) {
+					arcs_symmetrique++;
+				}
+			}
+		}
 	}
 
 	for (nbr k = 0; k < n_arcs; k++) {
@@ -123,10 +135,15 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 		if (a->destination->type != DESTINATION && a->source->type != SOURCE) {
 			matrice[index_source][index_destination] = a->flow;
 		}
+		if (a->flow != 0.0) {
+			n_arcs_non_nul += 1;
+		}
 	}
 
 	fprintf(file, "%d\n", n);
-	fprintf(file, "%d\n", n_arcs);
+	fprintf(file, "%d\n", n_arcs_non_nul);
+	fprintf(file, "%.4f\n", efficacite);
+	fprintf(file, "%d\n", arcs_symmetrique);
 	for (nbr i = 0; i < n; i++) {
 		for (nbr j = 0; j < n; j++) {
 			fprintf(file, "%.4f ", matrice[i][j]);

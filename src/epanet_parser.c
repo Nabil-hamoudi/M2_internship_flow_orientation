@@ -58,6 +58,36 @@ void comput_flow(EN_Project* ph) {
 	EN_solveH(*ph);
 }
 
+flotant compute_satisfaction_rate_epanet(EN_Project* ph) {
+	if (ph == NULL || *ph == NULL) return 0.0;
+
+	int nb_nodes = 0;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+	if (nb_nodes <= 0) return 0.0;
+
+	flotant total = 0.0;
+	int valid = 0;
+
+	for (int i = 1; i <= nb_nodes; i++) {
+		double base = 0.0, delivered = 0.0;
+		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &base);
+		EN_getnodevalue(*ph, i, EN_DEMANDFLOW, &delivered);
+
+		if (base <= 0.0) continue; /* ignore negative or zero base demand */
+
+		double s = 0.0;
+		s = delivered / base;
+		if (s < 0.0) s = 0.0;
+		else if (s > 1.0) s = 1.0;
+
+		total += (flotant) s;
+		valid++;
+	}
+
+	if (valid == 0) return 0.0;
+	return total / (flotant) valid;
+}
+
 struct graph chargement_graph(EN_Project* ph) {
 	int nb_sommets, nb_arcs, out_model;
 	flotant pression_min, pression_requise, exposant_pression, demande_multiplier;
@@ -79,7 +109,7 @@ struct graph chargement_graph(EN_Project* ph) {
 			demande_global += demande_temp;
 		};
 	}
-	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_requise, exposant_pression, demande_global, demande_multiplier);
+	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_requise, exposant_pression, demande_global, demande_multiplier, compute_satisfaction_rate_epanet(ph));
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -127,6 +157,4 @@ struct graph chargement_graph(EN_Project* ph) {
 	free(degrees);
 	return G;
 }
-
-
 

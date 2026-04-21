@@ -25,4 +25,4 @@ void marque_zero(struct graph* reseau);
 
 void compute_flow_ford_fukerson(struct graph* reseau);
 
-flotant* compute_satisfaction_rate(struct graph* reseau, nbr* nb_demands);
+flotant compute_satisfaction_rate(struct graph* reseau);
