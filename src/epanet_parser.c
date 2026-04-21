@@ -72,7 +72,7 @@ struct graph chargement_graph(EN_Project* ph) {
 	for (int i=1; i <= nb_sommets ; i++) {
 		EN_getnodevalue(*ph, i, EN_FULLDEMAND, &demande_temp);
 		EN_getnodetype(*ph, i, &temp_type);
-		if (demande_temp != 0 || temp_type == EN_RESERVOIR || temp_type == EN_TANK) {
+		if (demande_temp != 0 || temp_type == EN_RESERVOIR) {
 			degree_supp++;
 		};
 		if (demande_temp > 0) {
@@ -93,12 +93,12 @@ struct graph chargement_graph(EN_Project* ph) {
 		double elevation, demande, pression;
 		EN_getnodetype(*ph, i, &type_node);
 		type_node = parser_type_sommet(type_node);
-		EN_getnodevalue(*ph, i, EN_PRESSURE, &elevation);
+		EN_getnodevalue(*ph, i, EN_PRESSURE, &pression);
 		EN_getnodevalue(*ph, i, EN_ELEVATION, &elevation);
-		if (type_node == RESERVOIR || type_node == TANK) {
+		if (type_node == RESERVOIR) {
 			demande = -DBL_MAX;
 		} else {
-			EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
+			EN_getnodevalue(*ph, i, EN_DEMAND, &demande);
 		}
 		if (demande == 0) {
 			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, demande);

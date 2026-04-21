@@ -10,15 +10,20 @@
 #define EPSILON 0.0
 
 void fix_capacite_flow(struct graph* reseau) {
-	for (int i=0; i < reseau->nb_arcs ; i++) {
-		if (reseau->arcs[i].diametre || reseau->arcs[i].longueur) {
-			reseau->arcs[i].flow = 0.0;
-			reseau->arcs[i].capacite = (M_PI * pow((reseau->arcs[i].diametre*1000.0) / 2.0, 2) * reseau->arcs[i].longueur) * 264.172;
-		} else if (reseau->arcs[i].type == POMPE) {
-			reseau->arcs[i].flow = 0.0;
-			reseau->arcs[i].capacite = 10000.0;
+for (int i=0; i < reseau->nb_arcs ; i++) {
+	struct sommet* source = reseau->arcs[i].source;
+	struct sommet* destination = reseau->arcs[i].destination;
+	if (source->type != SOURCE && destination->type != DESTINATION) {
+		if (source->type != DESTINATION && destination->type != SOURCE) {
+			// capacité pour 2m/s en litre par minute
+			reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 120.0) * 1000;
+				if (source->type == RESERVOIR) {
+					// capacité max pour 3 m/s en litre par minute pour reservoir
+					reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 180.0) * 1000;
+				}
+			}
+		}
 	}
-}
 }
 
 void ajout_source_destination(struct graph* reseau) {
@@ -33,8 +38,8 @@ void ajout_source_destination(struct graph* reseau) {
 	reseau->nb_sommet += 2;
 
 	// revoir aussi car elevation etc
-	reseau->sommets[reseau->nb_sommet-2] = assignation_sommet(SOURCE, degree_source, 0, 0, 0);
-	reseau->sommets[reseau->nb_sommet-1] = assignation_sommet(DESTINATION, degree_destination, 0, 0, 0);
+	reseau->sommets[reseau->nb_sommet-2] = assignation_sommet(SOURCE, degree_source, 0, 0, 0, 0);
+	reseau->sommets[reseau->nb_sommet-1] = assignation_sommet(DESTINATION, degree_destination, 0, 0, 0, 0);
 	reseau->sommet_source = &reseau->sommets[reseau->nb_sommet-2];
 	reseau->sommet_destination = &reseau->sommets[reseau->nb_sommet-1];
 	nbr lien_source = 0, lien_destination = 0;
@@ -58,20 +63,31 @@ void ajout_source_destination(struct graph* reseau) {
 	}
 }
 
-void ajout_capacite_random(struct graph* reseau, float proportion_demande, float proportion_source) {
-	flotant random_value;
-	srand(time(NULL));
-
-	for (nbr i=0; i < reseau->sommet_source->degree; i++) {
-		random_value = (((flotant) rand() / RAND_MAX) * 2) * proportion_source;
-		reseau->sommet_source->arcs[i].arc_sortant->capacite = (reseau->sommet_source->arcs[i].arc_sortant->destination->demande*-1.0) * random_value;
+void ajout_capacite_source(struct graph* reseau, float proportion_source) {
+	for (int i=0; i < reseau->sommet_source->degree; i++) {
+		double capacite = reseau->demande_global / reseau->sommet_source->degree;
+		reseau->sommet_source->arcs[i].arc_sortant->capacite = capacite * proportion_source;
+		reseau->sommet_source->arcs[i].arc_entrant->capacite = 0.0;
 	}
 
+}
+
+void ajout_capacite_demande(struct graph* reseau, float proportion_demande) {
 	for (int i=0; i < reseau->sommet_destination->degree; i++) {
-		random_value = (((flotant) rand() / RAND_MAX) * 2) * proportion_demande;
-		reseau->sommet_destination->arcs[i].arc_entrant->capacite = (reseau->sommet_destination->arcs[i].arc_entrant->source->demande) * random_value;
+		reseau->sommet_destination->arcs[i].arc_entrant->capacite = (reseau->sommet_destination->arcs[i].arc_entrant->source->demande) * proportion_demande;
+		reseau->sommet_destination->arcs[i].arc_sortant->capacite = 0.0;
 	}
 }
+
+void ajout_capacite_random(struct graph* reseau, float proportion_demande, float proportion_source) {
+	srand(time(NULL));
+	proportion_demande = (((flotant) rand() / RAND_MAX) * 2) * proportion_demande;
+	ajout_capacite_demande(reseau, proportion_demande);
+	proportion_source = (((flotant) rand() / RAND_MAX) * 2) * proportion_source;
+	ajout_capacite_source(reseau, proportion_source);
+}
+
+
 
 void nullifier_flow(struct graph* reseau) {
 	for (int i=0; i < reseau->nb_arcs; i++) {
@@ -82,7 +98,7 @@ void nullifier_flow(struct graph* reseau) {
 
 flotant parcours_ff(struct sommet *sommet, flotant flow) {
 	flotant flow_ajoutable, new_flot;
-	if (sommet->type == DESTINATION) {return DBL_MAX;};
+	if (sommet->type == DESTINATION) {return flow;};
 	for (int i=0; i < sommet->degree; i++) {
 		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
 		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_sortant->destination->marque) {
@@ -92,7 +108,6 @@ flotant parcours_ff(struct sommet *sommet, flotant flow) {
 			new_sommet = sommet->arcs[i].arc_sortant->destination;
 			new_flot = parcours_ff(new_sommet, flow_ajoutable);
 			if (new_flot != -1.0) {
-				new_flot = fmin(new_flot, flow_ajoutable);
 				sommet->arcs[i].arc_sortant->flow += new_flot;
 				return new_flot;
 			}
@@ -105,7 +120,6 @@ flotant parcours_ff(struct sommet *sommet, flotant flow) {
 			new_sommet = sommet->arcs[i].arc_entrant->source;
 			new_flot = parcours_ff(new_sommet, flow_ajoutable);
 			if (new_flot != -1.0) {
-				new_flot = fmin(new_flot, flow_ajoutable);
 				sommet->arcs[i].arc_entrant->flow -= new_flot;
 				return new_flot;
 			}
@@ -129,5 +143,52 @@ void compute_flow_ford_fukerson(struct graph* reseau) {
 		sommet->marque = 1;
 		result = parcours_ff(sommet, DBL_MAX);
 	};
+}
+
+/**
+ * Compute average satisfaction rate for all demands
+ * Returns the average satisfaction rate (0.0 to 1.0)
+ * satisfaction_rate = actual_flow / demanded_flow
+ * Returns 0.0 if no demands exist
+ */
+flotant compute_satisfaction_rate(struct graph* reseau) {
+	// Count the number of demands and sum satisfaction rates
+	nbr demand_count = 0;
+	flotant total_satisfaction = 0.0;
+	
+	for (int i = 0; i < reseau->nb_sommet; i++) {
+		if (reseau->sommets[i].demande > 0) {
+			// Find the flow going to this demand node
+			flotant actual_flow = 0.0;
+			
+			for (int j = 0; j < reseau->sommets[i].degree; j++) {
+				// Check the outgoing arc to destination
+				if (reseau->sommets[i].arcs[j].arc_sortant->destination->type == DESTINATION) {
+					actual_flow = reseau->sommets[i].arcs[j].arc_sortant->flow;
+					break;
+				}
+			}
+			
+			// Calculate satisfaction rate: flow / demand
+			flotant satisfaction = actual_flow / reseau->sommets[i].demande;
+			
+			// Clamp to [0, 1] in case of numerical errors
+			if (satisfaction < 0.0) {
+				satisfaction = 0.0;
+			} else if (satisfaction > 1.0) {
+				satisfaction = 1.0;
+			}
+			
+			total_satisfaction += satisfaction;
+			demand_count++;
+		}
+	}
+	
+	// Return average satisfaction rate
+	if (demand_count == 0) {
+		return 0.0;
+	}
+	
+	return total_satisfaction / demand_count;
 }
 

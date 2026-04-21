@@ -96,7 +96,7 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 	nbr n_arcs;
 	if (source_destination) {
 		n = G->nb_sommet - 2;
-		nbr n_arcs = G->nb_arcs - ((G->sommet_source->degree + G->sommet_destination->degree)*2);
+		n_arcs = G->nb_arcs - ((G->sommet_source->degree + G->sommet_destination->degree)*2);
 	} else {
 		n = G->nb_sommet;
 		n_arcs = G->nb_arcs;
@@ -116,7 +116,7 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 		}
 	}
 
-	for (nbr k = 0; k < n; k++) {
+	for (nbr k = 0; k < n_arcs; k++) {
 		struct arc *a = &G->arcs[k];
 		nbr index_source = a->source - G->sommets;
 		nbr index_destination = a->destination - G->sommets;

@@ -55,6 +55,9 @@ struct graph {
 	flotant exposant_pression;
 	flotant demande_global;
 	flotant demande_multiplier;
+//	à ajouter
+//	flotant heure;
+//	pattern;
 	struct sommet *sommet_source;
 	struct sommet *sommet_destination;
 	struct sommet *sommets;
