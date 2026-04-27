@@ -144,6 +144,7 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 	fprintf(file, "%d\n", n_arcs_non_nul);
 	fprintf(file, "%.4f\n", efficacite);
 	fprintf(file, "%d\n", arcs_symmetrique);
+	fprintf(file, "%d\n", n_arcs);
 	for (nbr i = 0; i < n; i++) {
 		for (nbr j = 0; j < n; j++) {
 			fprintf(file, "%.4f ", matrice[i][j]);

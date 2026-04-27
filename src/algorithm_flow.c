@@ -10,21 +10,41 @@
 #define EPSILON 0.0
 
 void fix_capacite_flow(struct graph* reseau) {
-for (int i=0; i < reseau->nb_arcs ; i++) {
-	struct sommet* source = reseau->arcs[i].source;
-	struct sommet* destination = reseau->arcs[i].destination;
-	if (source->type != SOURCE && destination->type != DESTINATION) {
-		if (source->type != DESTINATION && destination->type != SOURCE) {
-			// capacité pour 2m/s en litre par minute
-			reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 120.0) * 1000;
-				if (source->type == RESERVOIR) {
-					// capacité max pour 3 m/s en litre par minute pour reservoir
-					reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 180.0) * 1000;
-				}
+	for (int i=0; i < reseau->nb_arcs ; i++) {
+		struct sommet* source = reseau->arcs[i].source;
+		struct sommet* destination = reseau->arcs[i].destination;
+		if (source->type != SOURCE && destination->type != DESTINATION && source->type != DESTINATION && destination->type != SOURCE) {
+			if (source->type == RESERVOIR) {
+				// capacité max pour 3 m/s en litre par minute pour reservoir
+				reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 180.0) * 1000;
+			} else if (destination->type != RESERVOIR) {
+				// capacité pour 2m/s en litre par minute
+				reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 120.0) * 1000;
 			}
 		}
 	}
 }
+
+void fix_capacite_flow_oriente(struct graph* reseau) {
+	for (int i=0; i < reseau->nb_arcs ; i++) {
+		struct sommet* source = reseau->arcs[i].source;
+		struct sommet* destination = reseau->arcs[i].destination;
+		if (source->type != SOURCE && destination->type != DESTINATION && source->type != DESTINATION && destination->type != SOURCE) {
+			if (reseau->arcs[i].flow > 0.0) {
+				if (source->type == RESERVOIR) {
+					// capacité max pour 3 m/s en litre par minute pour reservoir
+					reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 180.0) * 1000;
+				} else if (destination->type != RESERVOIR) {
+					// capacité pour 2m/s en litre par minute
+					reseau->arcs[i].capacite =  (M_PI * (pow(reseau->arcs[i].diametre, 2.0)/4) * 120.0) * 1000;
+				}
+			} else {
+				reseau->arcs[i].capacite = 0.0;
+			}
+		}
+	}
+}
+
 
 void ajout_source_destination(struct graph* reseau) {
 	nbr degree_source = 0, degree_destination = 0;

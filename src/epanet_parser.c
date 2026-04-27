@@ -53,7 +53,17 @@ EN_Project init_inp_file(char* input, char* log, char* binairy) {
 	return ph;
 }
 
-// a revoir
+void modif_base_demande(EN_Project* ph, float multiplicateur) {
+	nbr nb_nodes;
+	double base;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+
+	for (nbr i = 1; i <= nb_nodes; i++) {
+		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &base);
+		EN_setnodevalue(*ph, i, EN_BASEDEMAND, base * multiplicateur);
+	}
+}
+
 void comput_flow(EN_Project* ph) {
 	EN_solveH(*ph);
 }
@@ -61,21 +71,18 @@ void comput_flow(EN_Project* ph) {
 flotant compute_satisfaction_rate_epanet(EN_Project* ph) {
 	if (ph == NULL || *ph == NULL) return 0.0;
 
-	int nb_nodes = 0;
+	nbr nb_nodes;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
-	if (nb_nodes <= 0) return 0.0;
 
 	flotant total = 0.0;
-	int valid = 0;
+	nbr valid = 0;
 
-	for (int i = 1; i <= nb_nodes; i++) {
-		double base = 0.0, delivered = 0.0;
+	for (nbr i = 1; i <= nb_nodes; i++) {
+		flotant base = 0.0, delivered = 0.0;
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &base);
 		EN_getnodevalue(*ph, i, EN_DEMANDFLOW, &delivered);
 
-		if (base <= 0.0) continue; /* ignore negative or zero base demand */
-
-		double s = 0.0;
+		flotant s = 0.0;
 		s = delivered / base;
 		if (s < 0.0) s = 0.0;
 		else if (s > 1.0) s = 1.0;

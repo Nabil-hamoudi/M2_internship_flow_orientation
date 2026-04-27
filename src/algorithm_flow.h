@@ -11,6 +11,8 @@ struct stack {
 
 void fix_capacite_flow(struct graph* reseau);
 
+void fix_capacite_flow_oriente(struct graph* reseau);
+
 void ajout_source_destination(struct graph* reseau);
 
 void ajout_capacite_random(struct graph* reseau, float proportion_demande, float proportion_source);
