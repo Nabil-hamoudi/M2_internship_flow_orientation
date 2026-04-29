@@ -53,15 +53,18 @@ EN_Project init_inp_file(char* input, char* log, char* binairy) {
 	return ph;
 }
 
-void modif_base_demande(EN_Project* ph, float multiplicateur) {
-	nbr nb_nodes;
-	double base;
-	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+void modif_multiplicateur(EN_Project* ph, float multiplicateur) {
+	double mult;
+	EN_getoption(*ph, EN_DEMANDMULT, &mult);
+	EN_setoption(*ph, EN_DEMANDMULT, mult * multiplicateur);
+}
 
-	for (nbr i = 1; i <= nb_nodes; i++) {
-		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &base);
-		EN_setnodevalue(*ph, i, EN_BASEDEMAND, base * multiplicateur);
-	}
+long get_time(EN_Project* ph) {
+	long duree_totale, heure_debut;
+	ENgettimeparam(EN_DURATION, &duree_totale); 
+	ENgettimeparam(EN_STARTTIME, &heure_debut); 
+
+	return heure_debut + duree_totale;
 }
 
 void comput_flow(EN_Project* ph) {
@@ -69,30 +72,41 @@ void comput_flow(EN_Project* ph) {
 }
 
 flotant compute_satisfaction_rate_epanet(EN_Project* ph) {
-	if (ph == NULL || *ph == NULL) return 0.0;
-
 	nbr nb_nodes;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
 
-	flotant total = 0.0;
-	nbr valid = 0;
+	flotant total_demand = 0.0;
+	flotant total_delivered = 0.0;
 
+	flotant demand, delivered;
 	for (nbr i = 1; i <= nb_nodes; i++) {
-		flotant base = 0.0, delivered = 0.0;
-		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &base);
+		EN_getnodevalue(*ph, i, EN_FULLDEMAND, &demand);
 		EN_getnodevalue(*ph, i, EN_DEMANDFLOW, &delivered);
 
-		flotant s = 0.0;
-		s = delivered / base;
-		if (s < 0.0) s = 0.0;
-		else if (s > 1.0) s = 1.0;
-
-		total += (flotant) s;
-		valid++;
+		if (demand > 0.0) {
+			total_demand += demand;
+			total_delivered += delivered;
+		}
 	}
 
-	if (valid == 0) return 0.0;
-	return total / (flotant) valid;
+	if (total_demand == 0.0) {
+        return 1.0; 
+    }
+
+	return total_delivered / total_demand;
+}
+
+int get_time_pattern(EN_Project* ph, int id_node, int patern_id, float temp) {
+	long patStep, patStart;
+	int patLength;
+
+	EN_gettimeparam(*ph, EN_PATTERNSTEP, &patStep);   // Ex: 3600 s
+	EN_gettimeparam(*ph, EN_PATTERNSTART, &patStart);
+	EN_getpatternlen(*ph, patern_id, &patLength);
+
+	long index_periode = (temp + patStart) / patStep; 
+
+	return (index_periode % patLength) + 1;
 }
 
 struct graph chargement_graph(EN_Project* ph) {
@@ -107,7 +121,7 @@ struct graph chargement_graph(EN_Project* ph) {
 	double demande_temp, demande_global = 0;
 	int temp_type;
 	for (int i=1; i <= nb_sommets ; i++) {
-		EN_getnodevalue(*ph, i, EN_FULLDEMAND, &demande_temp);
+		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande_temp);
 		EN_getnodetype(*ph, i, &temp_type);
 		if (demande_temp != 0 || temp_type == EN_RESERVOIR) {
 			degree_supp++;
@@ -116,7 +130,7 @@ struct graph chargement_graph(EN_Project* ph) {
 			demande_global += demande_temp;
 		};
 	}
-	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_requise, exposant_pression, demande_global, demande_multiplier, compute_satisfaction_rate_epanet(ph));
+	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_requise, exposant_pression, demande_global, demande_multiplier, compute_satisfaction_rate_epanet(ph), get_time(ph));
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -126,21 +140,24 @@ struct graph chargement_graph(EN_Project* ph) {
 	}
 
 	for (int i = 1 ; i <= nb_sommets ; i++) {
-		int type_node;
-		double elevation, demande, pression;
+		int type_node, pattern_id, pattern_stamp;
+		double elevation, demande, pression, multiplier = 1.0;
+		
 		EN_getnodetype(*ph, i, &type_node);
 		type_node = parser_type_sommet(type_node);
 		EN_getnodevalue(*ph, i, EN_PRESSURE, &pression);
 		EN_getnodevalue(*ph, i, EN_ELEVATION, &elevation);
-		if (type_node == RESERVOIR) {
-			demande = -DBL_MAX;
-		} else {
-			EN_getnodevalue(*ph, i, EN_DEMAND, &demande);
+		// a revoir categorie de demande
+		EN_getdemandpattern(*ph, i, 1, &pattern_id);
+		if (pattern_id > 0.0) {
+			pattern_stamp = get_time_pattern(ph, i, pattern_id, G.temp);
+			EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &multiplier);
 		}
-		if (demande == 0) {
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, demande);
+		EN_getnodevalue(*ph, i, EN_DEMAND, &demande);
+		if (demande == 0 && type_node != EN_RESERVOIR) {
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, demande * G.demande_multiplier * multiplier);
 		} else {
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, demande);
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, demande * G.demande_multiplier * multiplier);
 		}
 		degrees[i-1] = 0;
 	}
@@ -161,6 +178,7 @@ struct graph chargement_graph(EN_Project* ph) {
 		degrees[noeud1-1] += 1;
 		degrees[noeud2-1] += 1;
 	}
+
 	free(degrees);
 	return G;
 }

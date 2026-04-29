@@ -2,7 +2,7 @@
 # include "stdlib.h"
 # include "structure.h"
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite) {
+struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp) {
 	struct graph G;
 	G.nb_sommet = nb_sommet;
 	G.nb_arcs = nb_arcs;
@@ -11,6 +11,7 @@ struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplement
 	G.demande_global = demande_global;
 	G.demande_multiplier = demande_multiplier;
 	G.satifaisabilite = satifaisabilite;
+	G.temp = temp;
 	G.sommets = malloc((G.nb_sommet+sommet_supplementaire) * sizeof(struct sommet));
 	if (G.sommets == NULL && G.nb_sommet > 0) exit(ALLOCATION_FAIL_GRAPH);
 	G.arcs = malloc((G.nb_arcs+arcs_supplementaire) * sizeof(struct arc));
@@ -86,6 +87,19 @@ int free_graph(struct graph *G) {
 		free(G->arcs);
 	}
 	return 0;
+}
+
+void compute_satisfaction_rate(struct graph* reseau) {
+	nbr deg = reseau->sommet_destination->degree;
+
+	flotant total_satisfaction = 0.0;
+
+	for (int i = 0; i < deg; i++) {
+		struct arc *a = reseau->sommet_destination->arcs[i].arc_entrant;
+		total_satisfaction += a->flow;
+	}
+
+	reseau->satifaisabilite = total_satisfaction / reseau->demande_global;
 }
 
 void export_flow_matrix(struct graph *G, const char *filename, int source_destination) {

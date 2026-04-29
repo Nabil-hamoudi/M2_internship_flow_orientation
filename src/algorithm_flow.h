@@ -4,12 +4,8 @@
 #define MALOC_RANDOM_DESTINATION_FAIL 42
 #define EPSILON 0.0
 
-struct stack {
-	struct stack *prev;
-	struct sommet *sommet;
-};
 
-void fix_capacite_flow(struct graph* reseau);
+void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
 
 void fix_capacite_flow_oriente(struct graph* reseau);
 
@@ -27,4 +23,3 @@ void marque_zero(struct graph* reseau);
 
 void compute_flow_ford_fukerson(struct graph* reseau);
 
-flotant compute_satisfaction_rate(struct graph* reseau);

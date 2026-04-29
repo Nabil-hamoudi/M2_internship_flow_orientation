@@ -56,16 +56,14 @@ struct graph {
 	flotant demande_global;
 	flotant demande_multiplier;
 	flotant satifaisabilite;
-//	à ajouter
-//	flotant heure;
-//	pattern;
+	long temp;
 	struct sommet *sommet_source;
 	struct sommet *sommet_destination;
 	struct sommet *sommets;
 	struct arc *arcs;
 };
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite);
+struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp);
 
 struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant demande);
 
@@ -76,6 +74,8 @@ struct arc assignation_arc_oppose(struct arc* B);
 struct arc_symmetrique assignation_arc_symmetrique(struct arc* A, struct arc* B, struct sommet* source);
 
 int free_graph(struct graph *G);
+
+void compute_satisfaction_rate(struct graph* reseau);
 
 void export_flow_matrix(struct graph *G, const char *filename, int source_destination);
 
