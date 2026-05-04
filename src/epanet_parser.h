@@ -10,5 +10,7 @@ EN_Project init_inp_file(char* input, char* log, char* binairy);
 
 void comput_flow(EN_Project* ph);
 
+void modif_multiplicateur(EN_Project* ph, float multiplicateur);
+
 struct graph chargement_graph(EN_Project* ph);
 

@@ -118,7 +118,7 @@ struct graph chargement_graph(EN_Project* ph) {
 	EN_getcount(*ph, EN_LINKCOUNT, &nb_arcs);
 
 	nbr degree_supp = 0;
-	double demande_temp, demande_global = 0;
+	double demande_temp;
 	int temp_type;
 	for (int i=1; i <= nb_sommets ; i++) {
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande_temp);
@@ -126,11 +126,8 @@ struct graph chargement_graph(EN_Project* ph) {
 		if (demande_temp != 0 || temp_type == EN_RESERVOIR) {
 			degree_supp++;
 		};
-		if (demande_temp > 0) {
-			demande_global += demande_temp;
-		};
 	}
-	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_requise, exposant_pression, demande_global, demande_multiplier, compute_satisfaction_rate_epanet(ph), get_time(ph));
+	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_requise, exposant_pression, 0.0, demande_multiplier, compute_satisfaction_rate_epanet(ph), get_time(ph));
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -153,10 +150,12 @@ struct graph chargement_graph(EN_Project* ph) {
 			pattern_stamp = get_time_pattern(ph, i, pattern_id, G.temp);
 			EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &multiplier);
 		}
-		EN_getnodevalue(*ph, i, EN_DEMAND, &demande);
-		if (demande == 0 && type_node != EN_RESERVOIR) {
+		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
+		if (demande == 0 && type_node != RESERVOIR) {
+			G.demande_global += demande * G.demande_multiplier * multiplier;
 			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, demande * G.demande_multiplier * multiplier);
 		} else {
+			G.demande_global += demande * G.demande_multiplier * multiplier;
 			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, demande * G.demande_multiplier * multiplier);
 		}
 		degrees[i-1] = 0;

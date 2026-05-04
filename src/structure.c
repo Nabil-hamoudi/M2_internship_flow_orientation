@@ -1,6 +1,7 @@
 # include "stdio.h"
 # include "stdlib.h"
 # include "structure.h"
+# include "math.h"
 
 struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp) {
 	struct graph G;
@@ -100,6 +101,10 @@ void compute_satisfaction_rate(struct graph* reseau) {
 	}
 
 	reseau->satifaisabilite = total_satisfaction / reseau->demande_global;
+}
+
+flotant compute_velocity(struct graph* reseau, nbr arc_index) {
+	return (4.0 * (reseau->arcs[arc_index].flow / 1000.0)) / (M_PI * ((reseau->arcs[arc_index].diametre/1000.0) * (reseau->arcs[arc_index].diametre/1000.0)));
 }
 
 void export_flow_matrix(struct graph *G, const char *filename, int source_destination) {

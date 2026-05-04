@@ -15,10 +15,10 @@ void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vite
 		if (source->type != SOURCE && destination->type != DESTINATION && source->type != DESTINATION && destination->type != SOURCE) {
 			if (source->type == RESERVOIR) {
 				// capacité max pour 3 m/s en litre par minute pour reservoir
-				reseau->arcs[i].capacite =  (M_PI * (pow((reseau->arcs[i].diametre/1000), 2.0)/4.0) * (60.0 * vitesse_reservoir)) * 1000.0;
+				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (60.0 * vitesse_reservoir)) * 1000.0;
 			} else if (destination->type != RESERVOIR) {
 				// capacité pour 2m/s en litre par minute
-				reseau->arcs[i].capacite =  (M_PI * (pow((reseau->arcs[i].diametre/1000), 2.0)/4.0) * (60.0 * vitesse_arcs)) * 1000.0;
+				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (60.0 * vitesse_arcs)) * 1000.0;
 			}
 		}
 	}
@@ -90,7 +90,9 @@ void ajout_capacite_source(struct graph* reseau, float proportion_source) {
 }
 
 void ajout_capacite_demande(struct graph* reseau, float proportion_demande) {
+	reseau->demande_global = 0.0;
 	for (int i=0; i < reseau->sommet_destination->degree; i++) {
+		reseau->demande_global += (reseau->sommet_destination->arcs[i].arc_entrant->source->demande) * proportion_demande;
 		reseau->sommet_destination->arcs[i].arc_entrant->capacite = (reseau->sommet_destination->arcs[i].arc_entrant->source->demande) * proportion_demande;
 		reseau->sommet_destination->arcs[i].arc_sortant->capacite = 0.0;
 	}

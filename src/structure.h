@@ -77,5 +77,7 @@ int free_graph(struct graph *G);
 
 void compute_satisfaction_rate(struct graph* reseau);
 
+flotant compute_velocity(struct graph* reseau, nbr arc_index);
+
 void export_flow_matrix(struct graph *G, const char *filename, int source_destination);
 
