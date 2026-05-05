@@ -7,7 +7,7 @@
 
 void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
 
-void fix_capacite_flow_oriente(struct graph* reseau);
+void fix_capacite_flow_oriente(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
 
 void ajout_source_destination(struct graph* reseau);
 
