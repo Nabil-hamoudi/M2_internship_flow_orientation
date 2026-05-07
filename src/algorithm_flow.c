@@ -8,6 +8,11 @@
 #define MALOC_RANDOM_DESTINATION_FAIL 42
 #define EPSILON 0.0
 
+struct file {
+	struct sommet* sommet;
+    struct file *suivant;
+} File;
+
 void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs) {
 	for (int i=0; i < reseau->nb_arcs ; i++) {
 		struct sommet* source = reseau->arcs[i].source;
@@ -98,15 +103,6 @@ void ajout_capacite_demande(struct graph* reseau, float proportion_demande) {
 	}
 }
 
-void ajout_capacite_random(struct graph* reseau, float proportion_demande, float proportion_source) {
-	proportion_demande = (((flotant) rand() / RAND_MAX) * 2) * proportion_demande;
-	ajout_capacite_demande(reseau, proportion_demande);
-	proportion_source = (((flotant) rand() / RAND_MAX) * 2) * proportion_source;
-	ajout_capacite_source(reseau, proportion_source);
-}
-
-
-
 void nullifier_flow(struct graph* reseau) {
 	for (int i=0; i < reseau->nb_arcs; i++) {
 		reseau->arcs[i].flow = 0.0;
@@ -164,4 +160,54 @@ void compute_flow_ford_fukerson(struct graph* reseau) {
 	compute_satisfaction_rate(reseau);
 }
 
+flotant parcours_ek(struct sommet *sommet, flotant flow) {
+	flotant flow_ajoutable, new_flot;
+	if (sommet->type == DESTINATION) {return flow;};
 
+	for (int i=0; i < sommet->degree; i++) {
+		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
+		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_sortant->destination->marque) {}
+		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
+		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_entrant->source->marque) {}
+	}
+
+	for (int i=0; i < sommet->degree; i++) {
+		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
+		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_sortant->destination->marque) {
+			struct sommet* new_sommet;
+			flow_ajoutable = fmin(flow, flow_ajoutable);
+			sommet->arcs[i].arc_sortant->destination->marque = 1;
+			new_sommet = sommet->arcs[i].arc_sortant->destination;
+			new_flot = parcours_ff(new_sommet, flow_ajoutable);
+			if (new_flot != -1.0) {
+				sommet->arcs[i].arc_sortant->flow += new_flot;
+				return new_flot;
+			}
+		}
+		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
+		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_entrant->source->marque) {
+			struct sommet* new_sommet;
+			flow_ajoutable = fmin(flow, flow_ajoutable);
+			sommet->arcs[i].arc_entrant->source->marque = 1;
+			new_sommet = sommet->arcs[i].arc_entrant->source;
+			new_flot = parcours_ff(new_sommet, flow_ajoutable);
+			if (new_flot != -1.0) {
+				sommet->arcs[i].arc_entrant->flow -= new_flot;
+				return new_flot;
+			}
+		}
+
+	}
+	return -1.0;
+}
+
+void compute_flow_edmonds_karp(struct graph* reseau) {
+	struct sommet* sommet = reseau->sommet_source;
+	flotant result = 1.0;
+	while (result != -1.0) {
+		marque_zero(reseau);
+		sommet->marque = 1;
+		result = parcours_ff(sommet, DBL_MAX);
+	};
+	compute_satisfaction_rate(reseau);
+}

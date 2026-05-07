@@ -84,26 +84,23 @@ void print_graph_details(struct graph *G, flotant v_res, flotant v_arc) {
 
 int analyse_comparative_FF_EPA_random(char *fichier_inp, char *fichier_output_epa, char *fichier_output_algo, flotant proportion_source, flotant proportion_demande, flotant proportion_demande_epa, flotant vitesse_reservoir, flotant vitesse_arcs, int affichage) {
 	EN_Project projet = init_inp_file(fichier_inp, "epanet_file.log", "resultat.res");
+	randomise_demande(&projet);
 	modif_multiplicateur(&projet, proportion_demande_epa);
 	comput_flow(&projet);
 	struct graph reseau_epanet = chargement_graph(&projet);
-
-	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
-
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
+	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
 	fix_capacite_flow(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 	ajout_source_destination(&reseau_epanet);
-	ajout_capacite_random(&reseau_epanet, proportion_demande, proportion_source);
+	ajout_capacite_demande(&reseau_epanet, proportion_demande);
 	ajout_capacite_source(&reseau_epanet, proportion_source);
 	nullifier_flow(&reseau_epanet);
 
 	compute_flow_ford_fukerson(&reseau_epanet);
-
-	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
-	
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
+	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
 	free_graph(&reseau_epanet);
 
 	EN_close(projet);
@@ -178,7 +175,9 @@ int main(int argc, char *argv[]) {
 	unsigned int seed = atoi(argv[10]);
 	int affichage = atoi(argv[11]);
 
-	srand(seed);
+	if (seed != 0){
+		srand(seed);
+	} else {srand(time(NULL));}
 
 	switch (type) {
 		case 1:

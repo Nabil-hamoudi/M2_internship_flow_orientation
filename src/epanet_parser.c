@@ -53,6 +53,19 @@ EN_Project init_inp_file(char* input, char* log, char* binairy) {
 	return ph;
 }
 
+void randomise_demande(EN_Project* ph) {
+	nbr nb_nodes;
+	double demand;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+	for (nbr i = 1; i <= nb_nodes; i++) {
+		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+
+		if (demand > 0.0) {
+			EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * (((flotant) rand() / RAND_MAX) * 2));
+		}
+	}
+}
+
 void modif_multiplicateur(EN_Project* ph, float multiplicateur) {
 	double mult;
 	EN_getoption(*ph, EN_DEMANDMULT, &mult);

@@ -12,5 +12,7 @@ void comput_flow(EN_Project* ph);
 
 void modif_multiplicateur(EN_Project* ph, float multiplicateur);
 
+void randomise_demande(EN_Project* ph);
+
 struct graph chargement_graph(EN_Project* ph);
 
