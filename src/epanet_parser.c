@@ -84,6 +84,11 @@ void comput_flow(EN_Project* ph) {
 	EN_solveH(*ph);
 }
 
+void fermeture_free_project(EN_Project* ph) {
+	EN_close(*ph);
+	EN_deleteproject(*ph);
+}
+
 flotant compute_satisfaction_rate_epanet(EN_Project* ph) {
 	nbr nb_nodes;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);

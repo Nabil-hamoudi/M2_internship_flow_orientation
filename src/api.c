@@ -50,8 +50,7 @@ int analyse_comparative_FF_EPA(char *fichier_inp, char *fichier_output_epa, char
 	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
 	free_graph(&reseau_epanet);
 
-	EN_close(projet);
-	EN_deleteproject(projet);
+	fermeture_free_project(&projet);
 	return 0;
 }
 
@@ -75,8 +74,7 @@ int analyse_comparative_FF_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
 	free_graph(&reseau_epanet);
 
-	EN_close(projet);
-	EN_deleteproject(projet);
+	fermeture_free_project(&projet);
 	return 0;
 }
 
@@ -101,8 +99,7 @@ int analyse_comparative_EK_EPA_random(char *fichier_inp, char *fichier_output_ep
 	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
 	free_graph(&reseau_epanet);
 
-	EN_close(projet);
-	EN_deleteproject(projet);
+	fermeture_free_project(&projet);
 	return 0;
 }
 
@@ -126,8 +123,7 @@ int analyse_comparative_EK_EPA(char *fichier_inp, char *fichier_output_epa, char
 	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
 	free_graph(&reseau_epanet);
 
-	EN_close(projet);
-	EN_deleteproject(projet);
+	fermeture_free_project(&projet);
 	return 0;
 }
 
@@ -151,8 +147,7 @@ int analyse_comparative_EK_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
 	free_graph(&reseau_epanet);
 
-	EN_close(projet);
-	EN_deleteproject(projet);
+	fermeture_free_project(&projet);
 	return 0;
 }
 

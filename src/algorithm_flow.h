@@ -17,8 +17,6 @@ void ajout_capacite_source(struct graph* reseau, float proportion_source);
 
 void nullifier_flow(struct graph* reseau);
 
-void marque_zero(struct graph* reseau);
-
 void compute_flow_ford_fukerson(struct graph* reseau);
 
 void compute_flow_edmonds_karp(struct graph* reseau);
