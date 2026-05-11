@@ -7,8 +7,13 @@
 
 struct file {
 	struct sommet* sommet;
-    struct file *suivant;
-} File;
+	struct arc* arc;
+	int inverse;
+	flotant flow_ajoutable;
+	struct file* precedent;
+	struct file* suivant;
+};
+
 
 void print_graph_details(struct graph *G, flotant v_res, flotant v_arc) {
 	if (G == NULL || G->sommets == NULL) {
@@ -215,55 +220,82 @@ void compute_flow_ford_fukerson(struct graph* reseau) {
 	compute_satisfaction_rate(reseau);
 }
 
-flotant parcours_ek(struct sommet *sommet, flotant flow) {
-	flotant flow_ajoutable, new_flot;
+flotant parcours_ek(struct file* file, struct file** end_file) {
+	flotant flow_ajoutable;
 	flotant epsilon = 0.0;
-	if (sommet->type == DESTINATION) {return flow;};
-
-	for (int i=0; i < sommet->degree; i++) {
-		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
-		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {}
-		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
-		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_entrant->source->marque) {}
-	}
+	struct sommet* sommet = file->sommet;
+	flotant flow = file->flow_ajoutable;
+	if (sommet->type == DESTINATION) {return flow;}
 
 	for (int i=0; i < sommet->degree; i++) {
 		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
 		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {
-			struct sommet* new_sommet;
 			flow_ajoutable = fmin(flow, flow_ajoutable);
 			sommet->arcs[i].arc_sortant->destination->marque = 1;
-			new_sommet = sommet->arcs[i].arc_sortant->destination;
-			new_flot = parcours_ff(new_sommet, flow_ajoutable);
-			if (new_flot != -1.0) {
-				sommet->arcs[i].arc_sortant->flow += new_flot;
-				return new_flot;
-			}
+			struct file* sommet_suivant = malloc(sizeof(struct file));
+			sommet_suivant->sommet = sommet->arcs[i].arc_sortant->destination;
+			sommet_suivant->flow_ajoutable = flow_ajoutable;
+			sommet_suivant->arc = sommet->arcs[i].arc_sortant;
+			sommet_suivant->inverse = 1;
+			sommet_suivant->precedent = file;
+			(*end_file)->suivant = sommet_suivant;
+			*end_file = sommet_suivant;
 		}
 		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
 		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_entrant->source->marque) {
-			struct sommet* new_sommet;
 			flow_ajoutable = fmin(flow, flow_ajoutable);
 			sommet->arcs[i].arc_entrant->source->marque = 1;
-			new_sommet = sommet->arcs[i].arc_entrant->source;
-			new_flot = parcours_ff(new_sommet, flow_ajoutable);
-			if (new_flot != -1.0) {
-				sommet->arcs[i].arc_entrant->flow -= new_flot;
-				return new_flot;
-			}
+			struct file* sommet_suivant = malloc(sizeof(struct file));
+			sommet_suivant->sommet = sommet->arcs[i].arc_entrant->source;
+			sommet_suivant->flow_ajoutable = flow_ajoutable;
+			sommet_suivant->arc = sommet->arcs[i].arc_entrant;
+			sommet_suivant->inverse = -1;
+			sommet_suivant->precedent = file;
+			(*end_file)->suivant = sommet_suivant;
+			(*end_file) = sommet_suivant;
 		}
-
 	}
+
 	return -1.0;
 }
 
 void compute_flow_edmonds_karp(struct graph* reseau) {
-	struct sommet* sommet = reseau->sommet_source;
-	flotant result = 1.0;
-	while (result != -1.0) {
+	flotant new_flot;
+	do {
+		struct file* file = malloc(sizeof(struct file));
+		struct file* end = file;
+		struct file** end_file = &end;
+		file->sommet = reseau->sommet_source;
+		file->flow_ajoutable = DBL_MAX;
+		file->precedent = NULL;
+		file->suivant = NULL;
+		reseau->sommet_source->marque = 1;
+		new_flot = parcours_ek(file, end_file);
+		struct file* current = file;
+		struct file* final = file;
+		struct file* tmp;
+		while (current->suivant != NULL && new_flot == -1.0) {
+			current = current->suivant;
+			new_flot = parcours_ek(current, end_file);
+			if (new_flot != -1.0) {
+				final = current;
+				break;
+			}
+		}
+		if (new_flot != -1.0) {
+			while (1) {
+				final->arc->flow += new_flot * final->inverse;
+				if (final->precedent == NULL) { break; }
+				final = final->precedent;
+			}
+		}
+		current = file;
+		while (current != NULL) {
+			tmp = current->suivant;
+			free(current);
+			current = tmp;
+		}
 		marque_zero(reseau);
-		sommet->marque = 1;
-		result = parcours_ff(sommet, DBL_MAX);
-	};
+	} while (new_flot != -1.0);
 	compute_satisfaction_rate(reseau);
 }
