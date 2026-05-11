@@ -1,17 +1,71 @@
+#include "stdio.h"
 #include "stdlib.h"
 #include "math.h"
 #include "float.h"
 #include "structure.h"
 #include "epanet_parser.h"
 
-#define MALOC_RANDOM_SOURCE_FAIL 41
-#define MALOC_RANDOM_DESTINATION_FAIL 42
-#define EPSILON 0.0
-
 struct file {
 	struct sommet* sommet;
     struct file *suivant;
 } File;
+
+void print_graph_details(struct graph *G, flotant v_res, flotant v_arc) {
+	if (G == NULL || G->sommets == NULL) {
+		printf("Erreur : Graphe non initialisé.\n");
+		return;
+	}
+
+	printf("\n=====================================================================================\n");
+	printf("                  ÉTAT DU RÉSEAU (Temps: %ld s)                         \n", G->temp);
+	printf("=====================================================================================\n");
+	printf("Sommets : %d | Arcs : %d\n", G->nb_sommet, G->nb_arcs);
+	printf("Demande Globale : %.2f | Satisfaisabilité : %.2f%%\n", 
+		G->demande_global, G->satifaisabilite * 100);
+	printf("Pression requise : %.2f | Exposant : %.2f\n", 
+		G->pression_requise, G->exposant_pression);
+	printf("Multiplicateur global de demande : %.4f\n", G->demande_multiplier);
+	printf("Vitesse max Reservoir : %.4f m/min | arcs : %.4f m/min\n", v_res*60, v_arc*60);
+	printf("-------------------------------------------------------------------------------------\n\n");
+
+	printf("--- LISTE DES SOMMETS ---\n");
+	printf("%-5s | %-12s | %-8s | %-12s | %-8s | %-5s\n", 
+		"ID", "Type", "Elev.", "Demande", "Press.", "Degré");
+	for (int i = 0; i < G->nb_sommet; i++) {
+		struct sommet *s = &G->sommets[i];
+		printf("%-5d | %-12s | %-8.2f | %-12.4f | %-8.2f | %-5d\n",
+		i + 1, get_nom_type_sommet(s->type), s->elevation, s->demande, s->pression, s->degree);
+	}
+
+	// Affichage des Arcs avec la colonne de Vitesse d'entrée
+	printf("\n--- LISTE DES ARCS ---\n");
+	printf("%-5s | %-8s | %-15s | %-8s | %-8s | %-12s | %-12s | %-10s\n", 
+		"ID", "Type", "Connexion", "Diam.", "Long.", "Capacité", "Flow", "Vit.In(m/min)");
+
+	for (int i = 0; i < G->nb_arcs; i++) {
+		struct arc *a = &G->arcs[i];
+		int idx_src = (int)(a->source - G->sommets) + 1;
+		int idx_dst = (int)(a->destination - G->sommets) + 1;
+
+		// On récupère la vitesse directement depuis les arguments de la fonction
+		// selon la même logique que dans fix_capacite_flow
+		flotant v_input = 0.0;
+		if (a->diametre > 0.0) {
+			v_input = compute_velocity(G, i);
+		}
+
+	printf("%-5d | %-8s | %3d -> %-9d | %-8.1f | %-8.1f | %-12.4f | %-12.4f | %-10.2f\n",
+		i + 1,
+		get_nom_type_arc(a->type),
+		idx_src, idx_dst,
+		a->diametre,
+		a->longueur,
+		a->capacite,
+		a->flow,
+		v_input); // Affichage direct du paramètre
+	}
+	printf("=====================================================================================\n\n");
+}
 
 void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs) {
 	for (int i=0; i < reseau->nb_arcs ; i++) {
@@ -112,10 +166,11 @@ void nullifier_flow(struct graph* reseau) {
 
 flotant parcours_ff(struct sommet *sommet, flotant flow) {
 	flotant flow_ajoutable, new_flot;
+	flotant epsilon = 0.0;
 	if (sommet->type == DESTINATION) {return flow;};
 	for (int i=0; i < sommet->degree; i++) {
 		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
-		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_sortant->destination->marque) {
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {
 			struct sommet* new_sommet;
 			flow_ajoutable = fmin(flow, flow_ajoutable);
 			sommet->arcs[i].arc_sortant->destination->marque = 1;
@@ -127,7 +182,7 @@ flotant parcours_ff(struct sommet *sommet, flotant flow) {
 			}
 		}
 		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
-		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_entrant->source->marque) {
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_entrant->source->marque) {
 			struct sommet* new_sommet;
 			flow_ajoutable = fmin(flow, flow_ajoutable);
 			sommet->arcs[i].arc_entrant->source->marque = 1;
@@ -162,18 +217,19 @@ void compute_flow_ford_fukerson(struct graph* reseau) {
 
 flotant parcours_ek(struct sommet *sommet, flotant flow) {
 	flotant flow_ajoutable, new_flot;
+	flotant epsilon = 0.0;
 	if (sommet->type == DESTINATION) {return flow;};
 
 	for (int i=0; i < sommet->degree; i++) {
 		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
-		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_sortant->destination->marque) {}
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {}
 		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
-		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_entrant->source->marque) {}
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_entrant->source->marque) {}
 	}
 
 	for (int i=0; i < sommet->degree; i++) {
 		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
-		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_sortant->destination->marque) {
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {
 			struct sommet* new_sommet;
 			flow_ajoutable = fmin(flow, flow_ajoutable);
 			sommet->arcs[i].arc_sortant->destination->marque = 1;
@@ -185,7 +241,7 @@ flotant parcours_ek(struct sommet *sommet, flotant flow) {
 			}
 		}
 		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
-		if (flow_ajoutable > EPSILON && !sommet->arcs[i].arc_entrant->source->marque) {
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_entrant->source->marque) {
 			struct sommet* new_sommet;
 			flow_ajoutable = fmin(flow, flow_ajoutable);
 			sommet->arcs[i].arc_entrant->source->marque = 1;

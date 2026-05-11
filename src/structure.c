@@ -3,6 +3,26 @@
 # include "structure.h"
 # include "math.h"
 
+const char* get_nom_type_sommet(enum type_sommet type) {
+	switch (type) {
+	case SOURCE:		return "SOURCE";
+	case JONCTION:		return "JONCTION";
+	case DESTINATION:	return "DESTINATION";
+	case RESERVOIR:		return "RESERVOIR";
+	case TANK:		return "TANK";
+	default:		return "INCONNU";
+	}
+}
+
+const char* get_nom_type_arc(enum type_arcs type) {
+	switch (type) {
+		case TUYAU: return "TUYAU";
+		case POMPE: return "POMPE";
+		case VALVE: return "VALVE";
+		default:    return "INCONNU";
+	}
+}
+
 struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp) {
 	struct graph G;
 	G.nb_sommet = nb_sommet;

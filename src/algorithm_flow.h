@@ -2,8 +2,8 @@
 
 #define MALOC_RANDOM_SOURCE_FAIL 41
 #define MALOC_RANDOM_DESTINATION_FAIL 42
-#define EPSILON 0.0
 
+void print_graph_details(struct graph *G, flotant v_res, flotant v_arc);
 
 void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
 
