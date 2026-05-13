@@ -40,14 +40,18 @@ struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplement
 	return G;
 }
 
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant demande) {
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant demande, flotant coord_x, flotant coord_y) {
 	struct sommet S;
+	struct coordonnee C;
 	S.type = type_s;
 	S.elevation = elevation;
 	S.degree = degree;
 	S.pression = pression;
 	S.demande = demande;
 	S.marque = 0;
+	C.x = coord_x;
+	C.y = coord_y;
+	S.position = C;
 	S.arcs = malloc((S.degree + degree_ajouter) * sizeof(struct arc_symmetrique));
 	if (S.arcs == NULL && S.degree > 0) exit(ALLOCATION_FAIL_SOMMETS);
 	return S;

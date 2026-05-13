@@ -156,14 +156,14 @@ struct graph chargement_graph(EN_Project* ph) {
 
 	for (int i = 1 ; i <= nb_sommets ; i++) {
 		int type_node, pattern_id, pattern_stamp;
-		double elevation, demande, pression, multiplier = 1.0;
+		double elevation, demande, pression, x, y, multiplier = 1.0;
 		
 		EN_getnodetype(*ph, i, &type_node);
 		type_node = parser_type_sommet(type_node);
 		EN_getnodevalue(*ph, i, EN_PRESSURE, &pression);
 		EN_getnodevalue(*ph, i, EN_ELEVATION, &elevation);
-		// a revoir categorie de demande
 		EN_getdemandpattern(*ph, i, 1, &pattern_id);
+		EN_getcoord(*ph, i, &x, &y);
 		if (pattern_id > 0.0) {
 			pattern_stamp = get_time_pattern(ph, i, pattern_id, G.temp);
 			EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &multiplier);
@@ -171,10 +171,10 @@ struct graph chargement_graph(EN_Project* ph) {
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
 		if (demande == 0 && type_node != RESERVOIR) {
 			G.demande_global += demande * G.demande_multiplier * multiplier;
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, demande * G.demande_multiplier * multiplier);
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, demande * G.demande_multiplier * multiplier, x, y);
 		} else {
 			G.demande_global += demande * G.demande_multiplier * multiplier;
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, demande * G.demande_multiplier * multiplier);
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, demande * G.demande_multiplier * multiplier, x, y);
 		}
 		degrees[i-1] = 0;
 	}

@@ -120,8 +120,8 @@ void ajout_source_destination(struct graph* reseau) {
 	}
 	reseau->nb_sommet += 2;
 
-	reseau->sommets[reseau->nb_sommet-2] = assignation_sommet(SOURCE, degree_source, 0, 0, 0, 0);
-	reseau->sommets[reseau->nb_sommet-1] = assignation_sommet(DESTINATION, degree_destination, 0, 0, 0, 0);
+	reseau->sommets[reseau->nb_sommet-2] = assignation_sommet(SOURCE, degree_source, 0, 0, 0, 0, 0, 0);
+	reseau->sommets[reseau->nb_sommet-1] = assignation_sommet(DESTINATION, degree_destination, 0, 0, 0, 0, 0, 0);
 	reseau->sommet_source = &reseau->sommets[reseau->nb_sommet-2];
 	reseau->sommet_destination = &reseau->sommets[reseau->nb_sommet-1];
 	nbr lien_source = 0, lien_destination = 0;
@@ -238,6 +238,7 @@ flotant parcours_ek(struct file* file, struct file** end_file) {
 			sommet_suivant->arc = sommet->arcs[i].arc_sortant;
 			sommet_suivant->inverse = 1;
 			sommet_suivant->precedent = file;
+			sommet_suivant->suivant = NULL;
 			(*end_file)->suivant = sommet_suivant;
 			*end_file = sommet_suivant;
 		}
@@ -251,6 +252,7 @@ flotant parcours_ek(struct file* file, struct file** end_file) {
 			sommet_suivant->arc = sommet->arcs[i].arc_entrant;
 			sommet_suivant->inverse = -1;
 			sommet_suivant->precedent = file;
+			sommet_suivant->suivant = NULL;
 			(*end_file)->suivant = sommet_suivant;
 			(*end_file) = sommet_suivant;
 		}
@@ -284,8 +286,8 @@ void compute_flow_edmonds_karp(struct graph* reseau) {
 		}
 		if (new_flot != -1.0) {
 			while (1) {
-				final->arc->flow += new_flot * final->inverse;
 				if (final->precedent == NULL) { break; }
+				final->arc->flow += new_flot * final->inverse;
 				final = final->precedent;
 			}
 		}
