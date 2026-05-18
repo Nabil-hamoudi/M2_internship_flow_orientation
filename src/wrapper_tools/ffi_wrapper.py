@@ -86,8 +86,9 @@ def import_epanet_graph(p_projet):
 
 
 def free_graph(p_reseau):
-    p_reseau = get_graph_pointer(p_reseau)
-    lib.free_graph(p_reseau)
+    if p_reseau is not None:
+        p_reseau = get_graph_pointer(p_reseau)
+        lib.free_graph(p_reseau)
 
 
 def compute_satisfaction_rate(p_reseau):

@@ -11,13 +11,13 @@ def get_nom_type_arc(type_arc):
     return lib.get_nom_type_arc(type_arc)
 
 
-def extraire_arcs_orientes_dominants(p_reseau, ignore_source_dest=False):
+def extraire_arcs_orientes_dominants(p_reseau, ignore_source_dest):
     nb_tuyaux = p_reseau.nb_arcs // 2
 
     if ignore_source_dest is False:
         nb_tuyaux -= p_reseau.sommet_source.degree + p_reseau.sommet_destination.degree
 
-    active_set = np.zeros(nb_tuyaux*2, dtype=np.int64)
+    active_set = np.zeros(nb_tuyaux*2, dtype=np.int32)
     set_size = 0
 
     idx_aller = 0
@@ -60,30 +60,30 @@ def get_efficacite(p_reseau):
     return p_reseau.satifaisabilite
 
 
-def get_n_sommet(p_reseau, ignore_source_dest=False):
+def get_n_sommet(p_reseau, ignore_source_dest):
     p_reseau = get_graph_pointer(p_reseau)
-    if ignore_source_dest:
+    if not ignore_source_dest:
         return p_reseau.nb_sommet - 2
     return p_reseau.nb_sommet
 
 
-def get_n_arcs(p_reseau, ignore_source_dest=False):
+def get_n_arcs(p_reseau, ignore_source_dest):
     p_reseau = get_graph_pointer(p_reseau)
-    if ignore_source_dest:
+    if not ignore_source_dest:
         return p_reseau.nb_arcs - ((p_reseau.sommet_source.degree + p_reseau.sommet_destination.degree) * 2)
     return p_reseau.nb_arcs
 
 
-def get_n_arcs_non_nul(p_reseau, ignore_source_dest=False):
+def get_n_arcs_non_nul(p_reseau, ignore_source_dest):
     p_reseau = get_graph_pointer(p_reseau)
     arcs = extraire_arcs_orientes_dominants(p_reseau, ignore_source_dest)
     return arcs.shape[0]
 
 
-def get_arcs_symmetrique(p_reseau, ignore_source_dest=False):
+def get_arcs_symmetrique(p_reseau, ignore_source_dest):
     nb_tuyaux = p_reseau.nb_arcs // 2
 
-    if ignore_source_dest is False:
+    if not ignore_source_dest:
         nb_tuyaux -= p_reseau.sommet_source.degree + p_reseau.sommet_destination.degree
 
     active_set = np.zeros(nb_tuyaux*2)
@@ -135,17 +135,17 @@ def get_demande_multiplier(p_reseau):
     return p_reseau.demande_multiplier
 
 
-def get_wape_flow(graph_ref, graph_sim, ignore_source_dest=False):
+def get_wape_flow(graph_ref, graph_sim, ignore_source_dest_ref, ignore_source_dest_sim):
     gref = get_graph_pointer(graph_ref)
     gsim = get_graph_pointer(graph_sim)
 
-    if get_n_arcs(gref, ignore_source_dest) != get_n_arcs(gsim, ignore_source_dest):
+    if get_n_arcs(gref, ignore_source_dest_ref) != get_n_arcs(gsim, ignore_source_dest_sim):
         return -1.0
 
     somme_erreurs = 0.0
     somme_flux_ref = 0.0
 
-    n = get_n_arcs(gsim, ignore_source_dest)
+    n = get_n_arcs(gsim, ignore_source_dest_sim)
 
     for i in range(n):
         a1, a2 = graph_ref.arcs[i], graph_sim.arcs[i]

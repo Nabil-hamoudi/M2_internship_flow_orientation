@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-import ffi_wrapper
+from src.wrapper_tools import ffi_wrapper
+from src.wrapper_tools import analyse_tools
 import numpy as np
 
 # --- IMPORT MATPLOTLIB ---
@@ -8,6 +9,10 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+SOURCEDEST = ("Ford-Fulkerson", "Edmonds-Karp")
+ALGO = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
+ORIEN = ("Aucune", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
 
 class AnalysisWindow(tk.Frame):
     def __init__(self, parent, app_manager):
@@ -23,8 +28,7 @@ class AnalysisWindow(tk.Frame):
             "Mult. Dest. (Algo)": "m_dst",
             "Satisfaisabilité Réf (%)": "sat_ref",
             "Satisfaisabilité Cible (%)": "sat_tgt",
-            "Erreur Absolue Moy (MAE)": "mae",
-            "Erreur Quad. Moy (MSE)": "mse"
+            "Erreur Absolue ponderee (WAPE %)": "wape"
         }
 
         self.setup_ui()
@@ -74,9 +78,9 @@ class AnalysisWindow(tk.Frame):
         for i, (key, label) in enumerate([("m_src", "M.Src"), ("m_dst_epa", "M.Dst(E)"), ("m_dst", "M.Dst(A)")]):
             tk.Label(grid, text=label, bg="#ecf0f1", anchor="w", font=("Segoe UI", 8)).grid(row=i+1, column=0, sticky="w")
             ent_min, ent_max, ent_n = tk.Entry(grid, width=5), tk.Entry(grid, width=5), tk.Entry(grid, width=4)
-            ent_min.insert(0, "0.5")
-            ent_max.insert(0, "1.5")
-            ent_n.insert(0, "3")
+            ent_min.insert(0, "1.0")
+            ent_max.insert(0, "1.0")
+            ent_n.insert(0, "1")
             ent_min.grid(row=i+1, column=1, padx=2, pady=1)
             ent_max.grid(row=i+1, column=2, padx=2)
             ent_n.grid(row=i+1, column=3, padx=2)
@@ -87,20 +91,20 @@ class AnalysisWindow(tk.Frame):
         ref_f.pack(fill=tk.X, pady=5)
         tk.Label(ref_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_algo = tk.StringVar(value="EPANET")
-        ttk.Combobox(ref_f, textvariable=self.ref_algo, values=("EPANET", "Ford-Fulkerson", "Edmonds-Karp"), state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(ref_f, textvariable=self.ref_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
         tk.Label(ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_ori = tk.StringVar(value="Aucune")
-        ttk.Combobox(ref_f, textvariable=self.ref_ori, values=("Aucune", "EPANET", "Ford-Fulkerson", "Edmonds-Karp"), state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(ref_f, textvariable=self.ref_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
         # --- MODÈLE CIBLE ---
         tgt_f = tk.LabelFrame(self.sidebar, text="Modèle à Comparer (Cible)", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         tgt_f.pack(fill=tk.X, pady=5)
         tk.Label(tgt_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.tgt_algo = tk.StringVar(value="Edmonds-Karp")
-        ttk.Combobox(tgt_f, textvariable=self.tgt_algo, values=("EPANET", "Ford-Fulkerson", "Edmonds-Karp"), state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(tgt_f, textvariable=self.tgt_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
         tk.Label(tgt_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.tgt_ori = tk.StringVar(value="Aucune")
-        ttk.Combobox(tgt_f, textvariable=self.tgt_ori, values=("Aucune", "EPANET", "Ford-Fulkerson", "Edmonds-Karp"), state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(tgt_f, textvariable=self.tgt_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
         v_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
         v_frame.pack(fill=tk.X, pady=5)
@@ -121,13 +125,13 @@ class AnalysisWindow(tk.Frame):
         cb_x.pack(fill=tk.X); cb_x.bind("<<ComboboxSelected>>", self.update_plot)
 
         tk.Label(self.sidebar, text="Axe Y :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.y_var = tk.StringVar(value="Satisfaisabilité (%)")
+        self.y_var = tk.StringVar(value="Satisfaisabilité Cible (%)")
         cb_y = ttk.Combobox(self.sidebar, textvariable=self.y_var, values=plot_opts, state="readonly")
         cb_y.pack(fill=tk.X); cb_y.bind("<<ComboboxSelected>>", self.update_plot)
 
         tk.Label(self.sidebar, text="Couleur :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.c_var = tk.StringVar(value="Erreur Absolue Moy (MAE)")
-        cb_c = ttk.Combobox(self.sidebar, textvariable=self.c_var, values=plot_opts, state="readonly")
+        self.c_var = tk.StringVar(value="Aucune")
+        cb_c = ttk.Combobox(self.sidebar, textvariable=self.c_var, values=["Aucune"] + plot_opts, state="readonly")
         cb_c.pack(fill=tk.X); cb_c.bind("<<ComboboxSelected>>", self.update_plot)
 
         # 2. ZONE DE DESSIN MATPLOTLIB (à droite)
@@ -192,26 +196,35 @@ class AnalysisWindow(tk.Frame):
             self.title_label.config(text=f"|  Analyse : {filename}")
             self.status_label.config(text=f"Fichier {filename} chargé.")
 
+    def compute_algo(self, reseau, choix):
+        match (choix):
+            case "Ford-Fulkerson":
+                ffi_wrapper.compute_flow_ford_fukerson(reseau)
+            case "Edmonds-Karp":
+                ffi_wrapper.compute_flow_edmonds_karp(reseau)
+
     def compute_graph(self, algo, ori, m_src, m_dst, v_res, v_arc):
         """Génère un graphe C complet basé sur un algorithme et une orientation donnés."""
-        if algo == "EPANET" or ori == "EPANET":
+        if algo == "EPANET":
             ffi_wrapper.compute_epanet(self.projet)
-            
-        reseau = ffi_wrapper.import_epanet_graph(self.projet)
-        if algo == "EPANET": return reseau
+            return ffi_wrapper.import_epanet_graph(self.projet)
 
-        if ori != "EPANET": ffi_wrapper.nullifier_flow(reseau)
-        
-        if ori == "Aucune": ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-        elif ori == "EPANET": ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+        reseau = None
+
+        if ori == "EPANET":
+            ffi_wrapper.compute_epanet(self.projet)
+            reseau = ffi_wrapper.import_epanet_graph(self.projet)
+            ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+        elif ori == "Aucune":
+            reseau = ffi_wrapper.import_epanet_graph(self.projet)
+            ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
         else:
             ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
             ffi_wrapper.ajout_source_destination(reseau)
             ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
             ffi_wrapper.ajout_capacite_source(reseau, m_src)
             ffi_wrapper.nullifier_flow(reseau)
-            if ori == "Ford-Fulkerson": ffi_wrapper.compute_flow_ford_fukerson(reseau)
-            else: ffi_wrapper.compute_flow_edmonds_karp(reseau)
+            self.compute_algo(reseau, ori)
             ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
 
         if ori in ("Aucune", "EPANET"):
@@ -220,9 +233,8 @@ class AnalysisWindow(tk.Frame):
             ffi_wrapper.ajout_capacite_source(reseau, m_src)
 
         ffi_wrapper.nullifier_flow(reseau)
-        if algo == "Ford-Fulkerson": ffi_wrapper.compute_flow_ford_fukerson(reseau)
-        else: ffi_wrapper.compute_flow_edmonds_karp(reseau)
-            
+        self.compute_algo(reseau, algo)
+
         return reseau
 
     def run_analysis(self):
@@ -247,10 +259,16 @@ class AnalysisWindow(tk.Frame):
             total_iters = len(arr_src) * len(arr_epa) * len(arr_dst)
             current_iter = 0
             current_epa_mult = 1.0 
-            
+            graph_ref = None
+            graph_tgt = None
+
             for m_epa in arr_epa:
                 ffi_wrapper.modif_multiplicateur(self.projet, m_epa / current_epa_mult)
                 current_epa_mult = m_epa
+                if algo_ref == "EPANET":
+                    graph_ref = self.compute_graph(algo_ref, ori_ref, 1.0, 1.0, 1.0, 1.0)
+                if algo_tgt == "EPANET":
+                    graph_tgt = self.compute_graph(algo_tgt, ori_ref, 1.0, 1.0, 1.0, 1.0)
 
                 for m_dst in arr_dst:
                     for m_src in arr_src:
@@ -259,22 +277,22 @@ class AnalysisWindow(tk.Frame):
                         self.update_idletasks()
 
                         # Génération des deux graphes
-                        graph_ref = self.compute_graph(algo_ref, ori_ref, m_src, m_dst, v_res, v_arc)
-                        graph_tgt = self.compute_graph(algo_tgt, ori_tgt, m_src, m_dst, v_res, v_arc)
+                        if algo_ref != "EPANET":
+                            ffi_wrapper.free_graph(graph_ref)
+                            graph_ref = self.compute_graph(algo_ref, ori_ref, m_src, m_dst, v_res, v_arc)
+                        if algo_tgt != "EPANET":
+                            ffi_wrapper.free_graph(graph_tgt)
+                            graph_tgt = self.compute_graph(algo_tgt, ori_tgt, m_src, m_dst, v_res, v_arc)
 
                         # Calcul des vraies métriques
-                        mae, mse = safe_get_metrics(graph_ref, graph_tgt)
-                        sat_ref = float(ffi_wrapper.get_efficacite(graph_ref)) * 100
-                        sat_tgt = float(ffi_wrapper.get_efficacite(graph_tgt)) * 100
+                        wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt, not (algo_ref in SOURCEDEST), not (algo_tgt in SOURCEDEST)) * 100
+                        sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
+                        sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
 
                         self.results.append({
                             "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
-                            "mae": mae, "mse": mse, 
-                            "sat_ref": sat_ref, "sat_tgt": sat_tgt
+                            "wape": wape, "sat_ref": sat_ref, "sat_tgt": sat_tgt
                         })
-
-                        ffi_wrapper.free_graph(graph_ref)
-                        ffi_wrapper.free_graph(graph_tgt)
 
             if current_epa_mult != 1.0:
                 ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / current_epa_mult)
@@ -288,23 +306,28 @@ class AnalysisWindow(tk.Frame):
     def update_plot(self, event=None):
         if not self.results: return
 
-        # Récupération des clés sélectionnées dans les menus
-        x_k, y_k, c_k = self.keys_map[self.x_var.get()], self.keys_map[self.y_var.get()], self.keys_map[self.c_var.get()]
+        # Récupération sécurisée des clés X et Y
+        x_k = self.keys_map[self.x_var.get()]
+        y_k = self.keys_map[self.y_var.get()]
         
         x_data = [r[x_k] for r in self.results]
         y_data = [r[y_k] for r in self.results]
-        c_data = [r[c_k] for r in self.results]
 
-        # NETTOYAGE COMPLET : empêche l'erreur d'accumulation des Axes
         self.fig.clf()
         self.ax = self.fig.add_subplot(111)
 
-        # Dessin du nuage de points
-        sc = self.ax.scatter(x_data, y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60)
+        # Gestion conditionnelle de la couleur
+        c_selection = self.c_var.get()
         
-        # Ajout de la nouvelle colorbar
-        cbar = self.fig.colorbar(sc, ax=self.ax)
-        cbar.set_label(self.c_var.get(), fontsize=9)
+        if c_selection == "Aucune":
+            self.ax.scatter(x_data, y_data, color='#3498db', edgecolors='black', alpha=0.8, s=60)
+        else:
+            c_k = self.keys_map[c_selection]
+            c_data = [r[c_k] for r in self.results]
+            
+            sc = self.ax.scatter(x_data, y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60)
+            cbar = self.fig.colorbar(sc, ax=self.ax)
+            cbar.set_label(c_selection, fontsize=9)
 
         # Labels et style
         self.ax.set_xlabel(self.x_var.get(), fontweight='bold')

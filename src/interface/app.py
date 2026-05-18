@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import filedialog
-import src.wrapper_tools.analyse_tools
+from src.wrapper_tools import analyse_tools
 from src.interface.visualisation import InternalWindow
-from src.interface.analyse import AnalysisWindows
+from src.interface.analyse import AnalysisWindow
 
 
 class AppManager(tk.Tk):
@@ -63,7 +63,3 @@ class AppManager(tk.Tk):
             self.active_window = self.windows[-1] if self.windows else None
             if self.active_window:
                 self.active_window.set_active_style(True)
-
-
-app = AppManager()
-app.mainloop()
