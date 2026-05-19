@@ -12,7 +12,7 @@ int analyse_comparative_FF_EPA_random(char *fichier_inp, char *fichier_output_ep
 	struct graph reseau_epanet = chargement_graph(&projet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
+	export_flow_matrix(&reseau_epanet, fichier_output_epa);
 	fix_capacite_flow(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
@@ -22,7 +22,8 @@ int analyse_comparative_FF_EPA_random(char *fichier_inp, char *fichier_output_ep
 	compute_flow_ford_fukerson(&reseau_epanet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
+	delete_source_destination(&reseau_epanet);
+	export_flow_matrix(&reseau_epanet, fichier_output_algo);
 	free_graph(&reseau_epanet);
 
 	EN_close(projet);
@@ -37,7 +38,7 @@ int analyse_comparative_FF_EPA(char *fichier_inp, char *fichier_output_epa, char
 	struct graph reseau_epanet = chargement_graph(&projet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
+	export_flow_matrix(&reseau_epanet, fichier_output_epa);
 	fix_capacite_flow(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
@@ -47,7 +48,8 @@ int analyse_comparative_FF_EPA(char *fichier_inp, char *fichier_output_epa, char
 	compute_flow_ford_fukerson(&reseau_epanet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
+	delete_source_destination(&reseau_epanet);
+	export_flow_matrix(&reseau_epanet, fichier_output_algo);
 	free_graph(&reseau_epanet);
 
 	fermeture_free_project(&projet);
@@ -61,7 +63,7 @@ int analyse_comparative_FF_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	struct graph reseau_epanet = chargement_graph(&projet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
+	export_flow_matrix(&reseau_epanet, fichier_output_epa);
 	fix_capacite_flow_oriente(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
@@ -71,7 +73,8 @@ int analyse_comparative_FF_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	compute_flow_ford_fukerson(&reseau_epanet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
+	delete_source_destination(&reseau_epanet);
+	export_flow_matrix(&reseau_epanet, fichier_output_algo);
 	free_graph(&reseau_epanet);
 
 	fermeture_free_project(&projet);
@@ -86,7 +89,7 @@ int analyse_comparative_EK_EPA_random(char *fichier_inp, char *fichier_output_ep
 	struct graph reseau_epanet = chargement_graph(&projet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
+	export_flow_matrix(&reseau_epanet, fichier_output_epa);
 	fix_capacite_flow(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
@@ -96,7 +99,8 @@ int analyse_comparative_EK_EPA_random(char *fichier_inp, char *fichier_output_ep
 	compute_flow_edmonds_karp(&reseau_epanet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
+	delete_source_destination(&reseau_epanet);
+	export_flow_matrix(&reseau_epanet, fichier_output_algo);
 	free_graph(&reseau_epanet);
 
 	fermeture_free_project(&projet);
@@ -110,7 +114,7 @@ int analyse_comparative_EK_EPA(char *fichier_inp, char *fichier_output_epa, char
 	struct graph reseau_epanet = chargement_graph(&projet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
+	export_flow_matrix(&reseau_epanet, fichier_output_epa);
 	fix_capacite_flow(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
@@ -120,7 +124,8 @@ int analyse_comparative_EK_EPA(char *fichier_inp, char *fichier_output_epa, char
 	compute_flow_edmonds_karp(&reseau_epanet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
+	delete_source_destination(&reseau_epanet);
+	export_flow_matrix(&reseau_epanet, fichier_output_algo);
 	free_graph(&reseau_epanet);
 
 	fermeture_free_project(&projet);
@@ -134,7 +139,7 @@ int analyse_comparative_EK_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	struct graph reseau_epanet = chargement_graph(&projet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_epa, 0);
+	export_flow_matrix(&reseau_epanet, fichier_output_epa);
 	fix_capacite_flow_oriente(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
@@ -144,7 +149,8 @@ int analyse_comparative_EK_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	compute_flow_edmonds_karp(&reseau_epanet);
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
-	export_flow_matrix(&reseau_epanet, fichier_output_algo, 1);
+	delete_source_destination(&reseau_epanet);
+	export_flow_matrix(&reseau_epanet, fichier_output_algo);
 	free_graph(&reseau_epanet);
 
 	fermeture_free_project(&projet);

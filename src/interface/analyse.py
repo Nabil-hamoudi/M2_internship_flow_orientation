@@ -21,7 +21,6 @@ class AnalysisWindow(tk.Frame):
         self.projet = None
         self.results = []
         
-# Dans AnalysisWindow.__init__
         self.keys_map = {
             "Mult. Source": "m_src",
             "Mult. Dest. (EPA)": "m_dst_epa",
@@ -41,7 +40,7 @@ class AnalysisWindow(tk.Frame):
         self.title_bar = tk.Frame(self, bg="#8e44ad", relief="flat", bd=0, height=25)
         self.title_bar.pack(fill=tk.X, side=tk.TOP)
         self.title_bar.pack_propagate(False)
-        self.title_label = tk.Label(self.title_bar, text="📈 Analyse Paramétrique Croisée", bg="#8e44ad", fg="white", font=("Segoe UI", 9, "bold"))
+        self.title_label = tk.Label(self.title_bar, text="Analyse Paramétrique Croisée", bg="#8e44ad", fg="white", font=("Segoe UI", 9, "bold"))
         self.title_label.pack(side=tk.LEFT, padx=5)
         self.close_btn = tk.Button(self.title_bar, text="X", bg="#e74c3c", fg="white", bd=0, width=3, command=self.close_window)
         self.close_btn.pack(side=tk.RIGHT)
@@ -49,7 +48,7 @@ class AnalysisWindow(tk.Frame):
         main_content = tk.Frame(self, bg="white")
         main_content.pack(fill=tk.BOTH, expand=True)
 
-        # 1. PANNEAU LATÉRAL AVEC SCROLLBAR (Sécurité)
+        # 1. PANNEAU LATÉRAL AVEC SCROLLBAR
         sidebar_container = tk.Frame(main_content, width=280, bg="#ecf0f1", relief="solid", bd=1)
         sidebar_container.pack(side=tk.LEFT, fill=tk.Y)
         sidebar_container.pack_propagate(False)
@@ -65,7 +64,7 @@ class AnalysisWindow(tk.Frame):
         canvas_side.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        tk.Button(self.sidebar, text="📂 Charger Réseau (.inp)", command=self.load_file, bg="white").pack(fill=tk.X, pady=(0, 10))
+        tk.Button(self.sidebar, text="Charger Réseau (.inp)", command=self.load_file, bg="white").pack(fill=tk.X, pady=(0, 10))
 
         seed_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
         seed_frame.pack(fill=tk.X, pady=(0, 5))
@@ -73,7 +72,7 @@ class AnalysisWindow(tk.Frame):
         self.seed_entry = tk.Entry(seed_frame, width=10)
         self.seed_entry.pack(side=tk.LEFT, padx=2)
 
-        tk.Button(self.sidebar, text="🎲 Randomiser Demandes", bg="#f39c12", fg="black", 
+        tk.Button(self.sidebar, text="Randomiser Demandes", bg="#f39c12", fg="black", 
                   font=("Segoe UI", 8, "bold"), command=self.randomise_demandes).pack(fill=tk.X, pady=(0, 10))
 
         tk.Label(self.sidebar, text="Balayage (Grid Search)", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
@@ -122,7 +121,7 @@ class AnalysisWindow(tk.Frame):
         tk.Label(v_frame, text="V. Arc:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
         self.v_arc = tk.Entry(v_frame, width=5); self.v_arc.insert(0, "120.0"); self.v_arc.pack(side=tk.LEFT, padx=2)
 
-        tk.Button(self.sidebar, text="⚙️ Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis).pack(fill=tk.X, pady=10)
+        tk.Button(self.sidebar, text="Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis).pack(fill=tk.X, pady=10)
 
         # --- TRACÉ MATPLOTLIB ---
         tk.Label(self.sidebar, text="Tracé du Graphe", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
@@ -143,7 +142,7 @@ class AnalysisWindow(tk.Frame):
         cb_c = ttk.Combobox(self.sidebar, textvariable=self.c_var, values=["Aucune"] + plot_opts, state="readonly")
         cb_c.pack(fill=tk.X); cb_c.bind("<<ComboboxSelected>>", self.update_plot)
 
-        # 2. ZONE DE DESSIN MATPLOTLIB (à droite)
+        # 2. ZONE DE DESSIN MATPLOTLIB
         self.plot_frame = tk.Frame(main_content, bg="white")
         self.plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
@@ -235,22 +234,29 @@ class AnalysisWindow(tk.Frame):
 
         self.status_label.config(text=f"Demandes randomisées (Seed: {seed_val}).")
 
-
-    def compute_algo(self, reseau, choix):
+    def compute_algo(self, reseau, choix, m_src, m_dst):
         match (choix):
             case "Ford-Fulkerson":
+                ffi_wrapper.ajout_source_destination(reseau)
+                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+                ffi_wrapper.ajout_capacite_source(reseau, m_src)
+                ffi_wrapper.nullifier_flow(reseau)
                 ffi_wrapper.compute_flow_ford_fukerson(reseau)
+                ffi_wrapper.delete_source_destination(reseau)
             case "Edmonds-Karp":
+                ffi_wrapper.ajout_source_destination(reseau)
+                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+                ffi_wrapper.ajout_capacite_source(reseau, m_src)
+                ffi_wrapper.nullifier_flow(reseau)
                 ffi_wrapper.compute_flow_edmonds_karp(reseau)
+                ffi_wrapper.delete_source_destination(reseau)
 
     def compute_graph(self, algo, ori, m_src, m_dst, v_res, v_arc):
-        """Génère un graphe C complet basé sur un algorithme et une orientation donnés."""
         if algo == "EPANET":
             ffi_wrapper.compute_epanet(self.projet)
-            return ffi_wrapper.import_epanet_graph(self.projet)
+            ffi_wrapper.import_epanet_graph(self.projet)
 
         reseau = None
-
         if ori == "EPANET":
             ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
@@ -259,21 +265,12 @@ class AnalysisWindow(tk.Frame):
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
             ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
         else:
+            reseau = ffi_wrapper.import_epanet_graph(self.projet)
             ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-            ffi_wrapper.ajout_source_destination(reseau)
-            ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-            ffi_wrapper.ajout_capacite_source(reseau, m_src)
-            ffi_wrapper.nullifier_flow(reseau)
-            self.compute_algo(reseau, ori)
+            self.compute_algo(reseau, ori, m_src, m_dst)
             ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
 
-        if ori in ("Aucune", "EPANET"):
-            ffi_wrapper.ajout_source_destination(reseau)
-            ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-            ffi_wrapper.ajout_capacite_source(reseau, m_src)
-
-        ffi_wrapper.nullifier_flow(reseau)
-        self.compute_algo(reseau, algo)
+        self.compute_algo(reseau, algo, m_src, m_dst)
 
         return reseau
 
@@ -317,16 +314,18 @@ class AnalysisWindow(tk.Frame):
                         self.update_idletasks()
 
                         if algo_ref != "EPANET":
-                            ffi_wrapper.free_graph(graph_ref)
+                            if graph_ref is not None:
+                                ffi_wrapper.free_graph(graph_ref)
                             graph_ref = self.compute_graph(algo_ref, ori_ref, m_src, m_dst, v_res, v_arc)
                         if algo_tgt != "EPANET":
-                            ffi_wrapper.free_graph(graph_tgt)
+                            if graph_tgt is not None:
+                                ffi_wrapper.free_graph(graph_tgt)
                             graph_tgt = self.compute_graph(algo_tgt, ori_tgt, m_src, m_dst, v_res, v_arc)
 
-                        wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt, not (algo_ref in SOURCEDEST), not (algo_tgt in SOURCEDEST)) * 100
+                        wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
                         sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
                         sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
-                        jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt, not (algo_ref in SOURCEDEST), not (algo_tgt in SOURCEDEST)) * 100
+                        jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
 
                         self.results.append({
                             "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
@@ -361,7 +360,6 @@ class AnalysisWindow(tk.Frame):
             self.app_manager.windows.append(win)
             win.load_file(self.current_file)
 
-
             win.algo_var.set(algo)
             win.ori_var.set(ori)
 
@@ -383,18 +381,11 @@ class AnalysisWindow(tk.Frame):
             win.trigger_run()
             return win
 
-
-        win_ref = spawn_visualizer(f"Réf: {self.ref_algo.get()}", self.ref_algo.get(), self.ref_ori.get())
-
-
         win_tgt = spawn_visualizer(f"Cible: {self.tgt_algo.get()}", self.tgt_algo.get(), self.tgt_ori.get())
-
-        win_tgt.place(x=win_ref.winfo_x() + 40, y=win_ref.winfo_y() + 40)
 
     def update_plot(self, event=None):
         if not self.results:
             return
-
 
         x_k = self.keys_map[self.x_var.get()]
         y_k = self.keys_map[self.y_var.get()]
@@ -408,18 +399,15 @@ class AnalysisWindow(tk.Frame):
         c_selection = self.c_var.get()
         
         if c_selection == "Aucune":
-
             self.ax.scatter(x_data, y_data, color='#3498db', edgecolors='black', alpha=0.8, s=60, picker=5)
         else:
             c_k = self.keys_map[c_selection]
             c_data = [r[c_k] for r in self.results]
 
-
             sc = self.ax.scatter(x_data, y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60, picker=5)
             cbar = self.fig.colorbar(sc, ax=self.ax)
             cbar.set_label(c_selection, fontsize=9)
 
-        # Labels et style
         self.ax.set_xlabel(self.x_var.get(), fontweight='bold')
         self.ax.set_ylabel(self.y_var.get(), fontweight='bold')
         self.ax.grid(True, linestyle='--', alpha=0.6)

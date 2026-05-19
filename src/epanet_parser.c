@@ -45,6 +45,17 @@ enum type_arcs parser_type_arc(int type_epanet) {
 	}
 }
 
+enum demand_model parser_type_model(int type_epanet) {
+	switch (type_epanet) {
+		case EN_DDA:
+			return DDA;
+		case EN_PDA:
+			return PDA;
+		default:
+			return PDA;
+	}
+}
+
 EN_Project init_inp_file(char* input, char* log, char* binairy) {
 	EN_Project ph;
 	EN_createproject(&ph);
@@ -78,7 +89,6 @@ void randomise_demande(EN_Project* ph) {
 			}
 		}
 	}
-
 }
 
 void modif_multiplicateur(EN_Project* ph, float multiplicateur) {
@@ -164,7 +174,7 @@ struct graph chargement_graph(EN_Project* ph) {
 			degree_supp++;
 		};
 	}
-	struct graph G = assignation_graph(nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_requise, exposant_pression, 0.0, demande_multiplier, compute_satisfaction_rate_epanet(ph), get_time(ph));
+	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 0.0, demande_multiplier, compute_satisfaction_rate_epanet(ph), get_time(ph));
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -200,14 +210,15 @@ struct graph chargement_graph(EN_Project* ph) {
 
 	for (int j = 1, i = 0 ; j <= nb_arcs ; j++, i += 2) {
 		int noeud1, noeud2, type_epa;
-		double diametre, longueur, flow;
+		double diametre, longueur, flow, roughness;
 		EN_getlinknodes(*ph, j, &noeud1, &noeud2);
 		EN_getlinktype(*ph, j, &type_epa);
 		type_epa = parser_type_arc(type_epa);
 		EN_getlinkvalue(*ph, j, EN_DIAMETER, &diametre);
 		EN_getlinkvalue(*ph, j, EN_LENGTH, &longueur);
+		EN_getlinkvalue(*ph, j, EN_ROUGHNESS, &roughness);
 		EN_getlinkvalue(*ph, j, EN_FLOW, &flow);
-		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, 0, flow, &G.sommets[noeud1-1], &G.sommets[noeud2-1]);
+		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, roughness, 0.0, flow, &G.sommets[noeud1-1], &G.sommets[noeud2-1]);
 		G.arcs[i+1] = assignation_arc_oppose(&G.arcs[i]);
 		G.sommets[noeud1-1].arcs[degrees[noeud1-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud1-1]);
 		G.sommets[noeud2-1].arcs[degrees[noeud2-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud2-1]);

@@ -109,6 +109,11 @@ void fix_capacite_flow_oriente(struct graph* reseau, float vitesse_reservoir, fl
 }
 
 
+void delete_source_destination(struct graph* reseau) {
+	reseau->nb_sommet -= 2;
+	reseau->nb_arcs -= ((reseau->sommet_source->degree + reseau->sommet_destination->degree)*2);
+}
+
 void ajout_source_destination(struct graph* reseau) {
 	nbr degree_source = 0, degree_destination = 0;
 	for (int i=0; i < reseau->nb_sommet ; i++) {
@@ -128,7 +133,7 @@ void ajout_source_destination(struct graph* reseau) {
 	for (int i=0; i < reseau->nb_sommet ; i++) {
 		if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].demande < 0.0) {
 			reseau->nb_arcs += 2;
-			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, reseau->sommet_source, &reseau->sommets[i]);
+			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, 0.0, reseau->sommet_source, &reseau->sommets[i]);
 			reseau->arcs[reseau->nb_arcs-1] = assignation_arc_oppose(&reseau->arcs[reseau->nb_arcs-2]);
 			reseau->sommet_source->arcs[lien_source] = assignation_arc_symmetrique(&reseau->arcs[reseau->nb_arcs-2], &reseau->arcs[reseau->nb_arcs-1], reseau->sommet_source);
 			lien_source++;
@@ -136,7 +141,7 @@ void ajout_source_destination(struct graph* reseau) {
 			reseau->sommets[i].arcs[reseau->sommets[i].degree-1] = assignation_arc_symmetrique(&reseau->arcs[reseau->nb_arcs-2], &reseau->arcs[reseau->nb_arcs-1], &reseau->sommets[i]);
 		} else if (reseau->sommets[i].demande > 0.0) {
 			reseau->nb_arcs += 2;
-			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0, 0, 0, 0, &reseau->sommets[i], reseau->sommet_destination);
+			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, 0.0, &reseau->sommets[i], reseau->sommet_destination);
 			reseau->arcs[reseau->nb_arcs-1] = assignation_arc_oppose(&reseau->arcs[reseau->nb_arcs-2]);
 			reseau->sommet_destination->arcs[lien_destination] = assignation_arc_symmetrique(&reseau->arcs[reseau->nb_arcs-2], &reseau->arcs[reseau->nb_arcs-1], reseau->sommet_destination);
 			lien_destination++;

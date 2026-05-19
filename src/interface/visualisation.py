@@ -86,7 +86,7 @@ class InternalWindow(tk.Frame):
         tk.Button(self.sidebar, text="Recentrer la vue",
                   command=self.reset_view).pack(fill=tk.X)
 
-        tk.Button(self.sidebar, text="🎲 Randomiser Demandes", bg="#f39c12", fg="black", 
+        tk.Button(self.sidebar, text="Randomiser Demandes", bg="#f39c12", fg="black", 
                   font=("Segoe UI", 8, "bold"), command=self.randomise_demandes).pack(fill=tk.X, pady=(5, 0))
 
         res_frame = tk.LabelFrame(
@@ -99,7 +99,11 @@ class InternalWindow(tk.Frame):
             lbl.pack(anchor="w")
             self.res_labels[key] = lbl
 
-        self.canvas = tk.Canvas(main_content, bg="white", highlightthickness=0)
+        self.legend_frame = tk.Frame(main_content, bg="white", width=120)
+        self.legend_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
+        self.legend_frame.pack_propagate(False)
+
+        self.canvas = tk.Canvas(main_content, bg="#F0F0F0", highlightthickness=0)
         self.canvas.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         self.status_bar = tk.Frame(self, bg="#bdc3c7", height=20)
@@ -208,12 +212,22 @@ class InternalWindow(tk.Frame):
         self.status_label.config(text="Fichier chargé.")
         self.reset_view()
 
-    def compute_algo(self, reseau, choix):
+    def compute_algo(self, reseau, choix, m_src, m_dst):
         match (choix):
             case "Ford-Fulkerson":
+                ffi_wrapper.ajout_source_destination(reseau)
+                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+                ffi_wrapper.ajout_capacite_source(reseau, m_src)
+                ffi_wrapper.nullifier_flow(reseau)
                 ffi_wrapper.compute_flow_ford_fukerson(reseau)
+                ffi_wrapper.delete_source_destination(reseau)
             case "Edmonds-Karp":
+                ffi_wrapper.ajout_source_destination(reseau)
+                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+                ffi_wrapper.ajout_capacite_source(reseau, m_src)
+                ffi_wrapper.nullifier_flow(reseau)
                 ffi_wrapper.compute_flow_edmonds_karp(reseau)
+                ffi_wrapper.delete_source_destination(reseau)
 
     def randomise_demandes(self):
         if not self.projet:
@@ -241,8 +255,7 @@ class InternalWindow(tk.Frame):
             mult = float(self.inputs["Mult. Demande"].get())
             v_res, v_arc = float(
                 self.inputs["Vit. Rés (m/min)"].get()), float(self.inputs["Vit. Arcs (m/min)"].get())
-            p_src, p_dem = float(self.inputs["Prop. Source"].get()), float(
-                self.inputs["Prop. Demande"].get())
+            p_src, p_dem = float(self.inputs["Prop. Source"].get()), float(self.inputs["Prop. Demande"].get())
             choix_algo, choix_ori = self.algo_var.get(), self.ori_var.get()
 
             self.status_label.config(text="Calcul en cours...")
@@ -250,32 +263,25 @@ class InternalWindow(tk.Frame):
 
             ffi_wrapper.modif_multiplicateur(self.projet, mult)
 
-            if choix_algo == "EPANET" or choix_ori == "EPANET":
+            if choix_algo == "EPANET":
                 ffi_wrapper.compute_epanet(self.projet)
+                ffi_wrapper.import_epanet_graph(self.projet)
 
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
+            reseau = None
+            if choix_ori == "EPANET":
+                ffi_wrapper.compute_epanet(self.projet)
+                reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+            elif choix_ori == "Aucune":
+                reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+            else:
+                reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                self.compute_algo(reseau, choix_ori, p_src, p_dem)
+                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
 
-            if choix_algo != "EPANET":
-                if choix_ori not in ("Aucune", "EPANET"):
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                    ffi_wrapper.ajout_source_destination(reseau)
-                    ffi_wrapper.ajout_capacite_demande(reseau, p_dem)
-                    ffi_wrapper.ajout_capacite_source(reseau, p_src)
-                    ffi_wrapper.nullifier_flow(reseau)
-                    self.compute_algo(reseau, choix_ori)
-                    ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
-                else:
-                    if choix_ori == "EPANET":
-                        ffi_wrapper.fix_capacite_flow_oriente(
-                            reseau, v_res, v_arc)
-                    else:
-                        ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                    ffi_wrapper.ajout_source_destination(reseau)
-                    ffi_wrapper.ajout_capacite_demande(reseau, p_dem)
-                    ffi_wrapper.ajout_capacite_source(reseau, p_src)
-
-                ffi_wrapper.nullifier_flow(reseau)
-                self.compute_algo(reseau, choix_algo)
+            self.compute_algo(reseau, choix_algo, p_src, p_dem)
 
             self.update_dashboard(reseau)
             self.extract_data(reseau)
@@ -296,96 +302,164 @@ class InternalWindow(tk.Frame):
         self.min_x = self.min_y = float('inf')
         self.max_x = self.max_y = float('-inf')
 
-        # Extraction enrichie des sommets
-        for i in range(reseau.nb_sommet):
-            s = reseau.sommets[i]
-            if s.type not in (0, 2):  # On ignore les sources/destinations artificielles
-                x, y = s.position.x, s.position.y
-                self.nodes.append({
-                    'x': x, 'y': y, 'type': s.type, 'id': i + 1,
-                    'elevation': s.elevation, 'demande': s.demande, 
-                    'pression': s.pression, 'degree': s.degree
-                })
-                self.min_x, self.max_x = min(self.min_x, x), max(self.max_x, x)
-                self.min_y, self.max_y = min(self.min_y, y), max(self.max_y, y)
+        nb_sommets = analyse_tools.get_n_sommet(reseau)
+        for i in range(nb_sommets):
+            s_type = analyse_tools.get_sommet_type(reseau, i)
+            x, y = analyse_tools.get_sommet_position(reseau, i)
+            self.nodes.append({
+                'x': x, 'y': y, 'type': s_type, 'id': i + 1,
+                'elevation': analyse_tools.get_sommet_elevation(reseau, i),
+                'demande': analyse_tools.get_sommet_demande(reseau, i),
+                'pression': analyse_tools.get_sommet_pression(reseau, i),
+                'degree': analyse_tools.get_sommet_degree(reseau, i)
+            })
+            self.min_x, self.max_x = min(self.min_x, x), max(self.max_x, x)
+            self.min_y, self.max_y = min(self.min_y, y), max(self.max_y, y)
 
-        # Extraction enrichie des arcs symétriques
-        arcs_actifs = analyse_tools.extraire_arcs_orientes_dominants(reseau, True)
-        for k in range(reseau.nb_arcs // 2):
+        arcs_actifs = analyse_tools.extraire_arcs_orientes_dominants(reseau)
+        nb_arcs = analyse_tools.get_n_arcs(reseau)
+        for k in range(nb_arcs // 2):
             idx_aller, idx_retour = 2 * k, 2 * k + 1
-            a_aller, a_retour = reseau.arcs[idx_aller], reseau.arcs[idx_retour]
-            if a_aller.source.type in (0, 2) or a_aller.destination.type in (0, 2):
+            
+            src_type = analyse_tools.get_arc_source_type(reseau, idx_aller)
+            dst_type = analyse_tools.get_arc_dest_type(reseau, idx_aller)
+            if src_type in (0, 2) or dst_type in (0, 2):
                 continue
 
-            x1, y1 = a_aller.source.position.x, a_aller.source.position.y
-            x2, y2 = a_aller.destination.position.x, a_aller.destination.position.y
+            x1, y1 = analyse_tools.get_arc_source_position(reseau, idx_aller)
+            x2, y2 = analyse_tools.get_arc_dest_position(reseau, idx_aller)
             flow = 0.0
             velocity = 0.0
             
             if idx_aller in arcs_actifs:
-                flow = a_aller.flow
+                flow = analyse_tools.get_arc_flow(reseau, idx_aller)
                 velocity = analyse_tools.compute_velocity(reseau, idx_aller)
             elif idx_retour in arcs_actifs:
-                x1, y1, x2, y2 = x2, y2, x1, y1  # Inversion géométrique du sens visuel
-                flow = a_retour.flow
+                x1, y1, x2, y2 = x2, y2, x1, y1
+                flow = analyse_tools.get_arc_flow(reseau, idx_retour)
                 velocity = analyse_tools.compute_velocity(reseau, idx_retour)
 
-            # Sauvegarde complète de la double conduite pour la pop-up de clic
             self.edges.append({
                 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 
-                'flow': flow, 'velocity': velocity, 'type': a_aller.type,
-                'diametre': a_aller.diametre, 'longueur': a_aller.longueur,
-                'flow_aller': a_aller.flow, 'cap_aller': a_aller.capacite,
-                'flow_retour': a_retour.flow, 'cap_retour': a_retour.capacite
+                'flow': flow, 'velocity': velocity, 
+                'type': analyse_tools.get_arc_type(reseau, idx_aller),
+                'diametre': analyse_tools.get_arc_diametre(reseau, idx_aller),
+                'longueur': analyse_tools.get_arc_longueur(reseau, idx_aller),
+                'roughness': analyse_tools.get_arc_roughness(reseau, idx_aller),
+                'flow_aller': analyse_tools.get_arc_flow(reseau, idx_aller), 
+                'cap_aller': analyse_tools.get_arc_capacite(reseau, idx_aller),
+                'flow_retour': analyse_tools.get_arc_flow(reseau, idx_retour), 
+                'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour)
             })
+
+    def get_dynamic_color(self, val, max_val, mode_couleur):
+        """Calcule un dégradé mathématique Bleu (Froid/Faible) -> Rouge (Chaud/Fort)."""
+        if mode_couleur == "Aucune":
+            return "#34495e"
+
+        ratio = min(1.0, max(0.0, val / max_val))
+        r = int(255 * ratio)
+        b = int(255 * (1 - ratio))
+        return f'#{r:02x}00{b:02x}'
 
     def draw_graph(self):
         self.canvas.delete("all")
         
-        # Configuration de la coloration dynamique
+        if not self.edges:
+            self.update_color_bar(0.0, "Aucune")
+            return
+
         mode_couleur = self.color_var.get()
         max_val = 0.01
+        
         if mode_couleur == "Flow (Débit)":
             max_val = max([e['flow'] for e in self.edges] + [0.01])
         elif mode_couleur == "Vitesse":
             max_val = max([e['velocity'] for e in self.edges] + [0.01])
 
-        def get_dynamic_color(val):
-            if mode_couleur == "Aucune":
-                return "#e67e22" if e['type'] == 1 else "black"
-            # Dégradé mathématique Bleu (Froid/Faible) -> Rouge (Chaud/Fort)
-            ratio = min(1.0, max(0.0, val / max_val))
-            r = int(255 * ratio)
-            b = int(255 * (1 - ratio))
-            return f'#{r:02x}00{b:02x}'
+        self.update_color_bar(max_val, mode_couleur)
 
-        # Tracé des Arcs
         for idx, e in enumerate(self.edges):
             sx1, sy1 = self.world_to_screen(e['x1'], e['y1'])
             sx2, sy2 = self.world_to_screen(e['x2'], e['y2'])
             mx, my = (sx1 + sx2) / 2, (sy1 + sy2) / 2
             
             val_color = e['flow'] if mode_couleur == "Flow (Débit)" else e['velocity']
-            color = get_dynamic_color(val_color)
-            width_line = 2 if mode_couleur != "Aucune" else 1
+            
+            if mode_couleur == "Aucune":
+                color = "#e67e22" if e['type'] == 1 else "black"
+                width_line = 3
+            elif val_color <= 0.001:
+                color = "black"
+                width_line = 3
+            else:
+                color = self.get_dynamic_color(val_color, max_val, mode_couleur)
+                width_line = 3
 
             if e['flow'] > 0.001:
                 self.canvas.create_line(sx1, sy1, mx, my, fill=color, width=width_line, arrow=tk.LAST, arrowshape=(8, 10, 3), tags=(f"edge_{idx}", "edge"))
                 self.canvas.create_line(mx, my, sx2, sy2, fill=color, width=width_line, tags=(f"edge_{idx}", "edge"))
             else:
+                # Pour les conduites complètement inactives, pas de flèche
                 self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=width_line, tags=(f"edge_{idx}", "edge"))
 
-        # Tracé des Sommets
+        # Tracé des Sommets (tags f"node_{idx}")
         r = 5 if mode_couleur != "Aucune" else 4
         for idx, n in enumerate(self.nodes):
             sx, sy = self.world_to_screen(n['x'], n['y'])
-            # Ajout du tag unique f"node_{idx}"
-            if n['type'] == 1:
-                self.canvas.create_oval(sx-r, sy-r, sx+r, sy+r, fill="#2c3e50", tags=(f"node_{idx}", "node"))
-            elif n['type'] == 3:
+            if n['type'] == 1: # Jonction
+                self.canvas.create_oval(sx-r, sy-r, sx+r, sy+r, fill="#2c3e50", outline="white", tags=(f"node_{idx}", "node"))
+            elif n['type'] == 3: # Réservoir
                 self.canvas.create_polygon(sx-r*2, sy-r, sx-r, sy+r, sx+r, sy+r, sx+r*2, sy-r, fill="#3498db", outline="black", tags=(f"node_{idx}", "node"))
-            elif n['type'] == 4:
+            elif n['type'] == 4: # Tank
                 self.canvas.create_rectangle(sx-r, sy-r*2, sx+r, sy+r*2, fill="#2ecc71", outline="black", tags=(f"node_{idx}", "node"))
+
+
+    def update_color_bar(self, max_val, mode_couleur):
+        """Dessine la barre de légende verticale (Bleu->Rouge) de manière figée."""
+        # Nettoyage complet du panneau de légende
+        for widget in self.legend_frame.winfo_children():
+            widget.destroy()
+
+        if mode_couleur == "Aucune":
+            self.legend_frame.config(width=0)
+            return
+        
+        self.legend_frame.config(width=100) # Légende légèrement rétrécie
+        
+        # --- Titre et Unité (Fixés en haut) ---
+        unit = "(L/min)" if mode_couleur == "Flow (Débit)" else "(m/s)"
+        label_text = f"{mode_couleur.split(' (')[0]}\n{unit}"
+        tk.Label(self.legend_frame, text=label_text, bg="white", fg="black", font=("Segoe UI", 9, "bold")).place(x=50, y=20, anchor="n")
+
+        # --- Paramètres géométriques réduits et fixes ---
+        grad_height = 300 # Hauteur réduite
+        grad_width = 20   # Largeur réduite
+        
+        # --- CANVAS DU GRADIENT ---
+        # Placé de manière absolue (ne bougera JAMAIS)
+        grad_canvas = tk.Canvas(self.legend_frame, width=grad_width, height=grad_height, bg="white", highlightthickness=1, relief="solid")
+        grad_canvas.place(x=70, y=70) # Position fixe depuis le haut-gauche
+        
+        # Dessin du gradient vertical 
+        for y in range(grad_height):
+            ratio = (grad_height - y) / grad_height 
+            color = self.get_dynamic_color(ratio * max_val, max_val, mode_couleur)
+            grad_canvas.create_line(0, y, grad_width, y, fill=color)
+
+        # --- ÉTIQUETTES DE VALEURS ---
+        lbl_font = ("Segoe UI", 8)
+        
+        # Haut (Max)
+        tk.Label(self.legend_frame, text=f"{max_val:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70, anchor="e")
+        # 3/4
+        tk.Label(self.legend_frame, text=f"{max_val*0.75:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + (grad_height * 0.25), anchor="e")
+        # Milieu (1/2)
+        tk.Label(self.legend_frame, text=f"{max_val*0.5:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + (grad_height * 0.5), anchor="e")
+        # 1/4
+        tk.Label(self.legend_frame, text=f"{max_val*0.25:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + (grad_height * 0.75), anchor="e")
+        # Bas (Zéro)
+        tk.Label(self.legend_frame, text=f"0.00", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + grad_height, anchor="e")
 
     def reset_view(self):
         if not self.nodes:
@@ -420,7 +494,7 @@ class InternalWindow(tk.Frame):
         n = self.nodes[idx]
         types_sommet = {0: "SOURCE", 1: "JONCTION", 2: "DESTINATION", 3: "RESERVOIR", 4: "TANK"}
         
-        msg = f"📍 --- Détails du Sommet --- 📍\n\n"
+        msg = f"--- Détails du Sommet ---\n\n"
         msg += f"ID ID_EPANET : {n['id']}\n"
         msg += f"Type de nœud : {types_sommet.get(n['type'], 'INCONNU')}\n"
         msg += f"Élévation : {n['elevation']:.2f} m\n"
@@ -434,17 +508,17 @@ class InternalWindow(tk.Frame):
         e = self.edges[idx]
         types_arc = {0: "TUYAU", 1: "POMPE", 2: "VALVE"}
 
-        msg = f"🚰 --- Conduites Symétriques Jumelles --- 🚰\n\n"
+        msg = f"--- Conduites Symétriques Jumelles ---\n\n"
         msg += f"Type structurel : {types_arc.get(e['type'], 'INCONNU')}\n"
         msg += f"Diamètre nominal : {e['diametre']:.1f} mm\n"
         msg += f"Longueur physique : {e['longueur']:.1f} m\n\n"
-        msg += f"➡️ ARC ALLER (Index C: {idx*2}) :\n"
+        msg += f" - ARC ALLER (Index C: {idx*2}) :\n"
         msg += f"  • Débit (Flow) : {e['flow_aller']:.4f} L/min\n"
         msg += f"  • Capacité Max : {e['cap_aller']:.2f} L/min\n\n"
-        msg += f"⬅️ ARC RETOUR (Index C: {idx*2+1}) :\n"
+        msg += f" - ARC RETOUR (Index C: {idx*2+1}) :\n"
         msg += f"  • Débit (Flow) : {e['flow_retour']:.4f} L/min\n"
         msg += f"  • Capacité Max : {e['cap_retour']:.2f} L/min\n\n"
-        msg += f"📊 Métriques actives de rendu :\n"
+        msg += f" - Métriques actives de rendu :\n"
         msg += f"  • Débit dominant : {e['flow']:.4f} L/min\n"
         msg += f"  • Vitesse calculée : {e['velocity']:.4f} m/min"
         

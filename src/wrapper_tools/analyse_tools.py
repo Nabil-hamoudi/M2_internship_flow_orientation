@@ -2,6 +2,56 @@ from librairie._reseau_C import ffi, lib
 from src.wrapper_tools.ffi_wrapper import get_graph_pointer
 import numpy as np
 
+def get_sommet_type(p_reseau, index):
+    return get_graph_pointer(p_reseau).sommets[index].type
+
+def get_sommet_degree(p_reseau, index):
+    return get_graph_pointer(p_reseau).sommets[index].degree
+
+def get_sommet_elevation(p_reseau, index):
+    return get_graph_pointer(p_reseau).sommets[index].elevation
+
+def get_sommet_demande(p_reseau, index):
+    return get_graph_pointer(p_reseau).sommets[index].demande
+
+def get_sommet_pression(p_reseau, index):
+    return get_graph_pointer(p_reseau).sommets[index].pression
+
+def get_sommet_position(p_reseau, index):
+    s = get_graph_pointer(p_reseau).sommets[index]
+    return s.position.x, s.position.y
+
+def get_arc_type(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].type
+
+def get_arc_diametre(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].diametre
+
+def get_arc_longueur(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].longueur
+
+def get_arc_roughness(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].roughness
+
+def get_arc_capacite(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].capacite
+
+def get_arc_flow(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].flow
+
+def get_arc_source_type(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].source.type
+
+def get_arc_dest_type(p_reseau, index):
+    return get_graph_pointer(p_reseau).arcs[index].destination.type
+
+def get_arc_source_position(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].source
+    return s.position.x, s.position.y
+
+def get_arc_dest_position(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].destination
+    return s.position.x, s.position.y
 
 def get_nom_type_sommet(type_sommet):
     return lib.get_nom_type_sommet(type_sommet)
@@ -11,11 +61,8 @@ def get_nom_type_arc(type_arc):
     return lib.get_nom_type_arc(type_arc)
 
 
-def extraire_arcs_orientes_dominants(p_reseau, ignore_source_dest):
+def extraire_arcs_orientes_dominants(p_reseau):
     nb_tuyaux = p_reseau.nb_arcs // 2
-
-    if ignore_source_dest is False:
-        nb_tuyaux -= p_reseau.sommet_source.degree + p_reseau.sommet_destination.degree
 
     active_set = np.zeros(nb_tuyaux*2, dtype=np.int32)
     set_size = 0
@@ -43,9 +90,9 @@ def extraire_arcs_orientes_dominants(p_reseau, ignore_source_dest):
     return active_set
 
 
-def jaccard_distance(graph_ref, graph_sim, ignore_source_dest_ref, ignore_source_dest_sim):
-    active1 = extraire_arcs_orientes_dominants(graph_ref, ignore_source_dest_ref)
-    active2 = extraire_arcs_orientes_dominants(graph_sim, ignore_source_dest_sim)
+def jaccard_distance(graph_ref, graph_sim):
+    active1 = extraire_arcs_orientes_dominants(graph_ref)
+    active2 = extraire_arcs_orientes_dominants(graph_sim)
 
     union = np.union1d(active1, active2)
     if union.shape[0] == 0:
@@ -60,31 +107,24 @@ def get_efficacite(p_reseau):
     return p_reseau.satifaisabilite
 
 
-def get_n_sommet(p_reseau, ignore_source_dest):
+def get_n_sommet(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
-    if not ignore_source_dest:
-        return p_reseau.nb_sommet - 2
     return p_reseau.nb_sommet
 
 
-def get_n_arcs(p_reseau, ignore_source_dest):
+def get_n_arcs(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
-    if not ignore_source_dest:
-        return p_reseau.nb_arcs - ((p_reseau.sommet_source.degree + p_reseau.sommet_destination.degree) * 2)
     return p_reseau.nb_arcs
 
 
-def get_n_arcs_non_nul(p_reseau, ignore_source_dest):
+def get_n_arcs_non_nul(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
-    arcs = extraire_arcs_orientes_dominants(p_reseau, ignore_source_dest)
+    arcs = extraire_arcs_orientes_dominants(p_reseau)
     return arcs.shape[0]
 
 
-def get_arcs_symmetrique(p_reseau, ignore_source_dest):
+def get_arcs_symmetrique(p_reseau):
     nb_tuyaux = p_reseau.nb_arcs // 2
-
-    if not ignore_source_dest:
-        nb_tuyaux -= p_reseau.sommet_source.degree + p_reseau.sommet_destination.degree
 
     active_set = np.zeros(nb_tuyaux*2)
     set_size = 0
@@ -108,15 +148,6 @@ def get_arcs_symmetrique(p_reseau, ignore_source_dest):
     active_set.resize((set_size, 1))
 
     return active_set
-
-
-def compute_velocity(p_reseau, arc_index):
-    p_reseau = get_graph_pointer(p_reseau)
-    return lib.compute_velocity(p_reseau, arc_index)
-
-def elevation(p_reseau, arc_index):
-    p_reseau = get_graph_pointer(p_reseau)
-    return p_reseau.sommets[arc_index].elevation
 
 def compute_velocity(p_reseau, arc_index):
     p_reseau = get_graph_pointer(p_reseau)
@@ -142,17 +173,17 @@ def get_demande_multiplier(p_reseau):
     return p_reseau.demande_multiplier
 
 
-def get_wape_flow(graph_ref, graph_sim, ignore_source_dest_ref, ignore_source_dest_sim):
+def get_wape_flow(graph_ref, graph_sim):
     gref = get_graph_pointer(graph_ref)
     gsim = get_graph_pointer(graph_sim)
 
-    if get_n_arcs(gref, ignore_source_dest_ref) != get_n_arcs(gsim, ignore_source_dest_sim):
+    if get_n_arcs(gref) != get_n_arcs(gsim):
         return -1.0
 
     somme_erreurs = 0.0
     somme_flux_ref = 0.0
 
-    n = get_n_arcs(gsim, ignore_source_dest_sim)
+    n = get_n_arcs(gsim)
 
     for i in range(n):
         a1, a2 = graph_ref.arcs[i], graph_sim.arcs[i]

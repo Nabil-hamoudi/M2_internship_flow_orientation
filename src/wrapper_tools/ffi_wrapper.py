@@ -18,10 +18,13 @@ def print_graph_details(p_reseau, vitesse_reservoir, vitesse_arcs):
     p_reseau = get_graph_pointer(p_reseau)
     return lib.print_graph_details(p_reseau, vitesse_reservoir, vitesse_arcs)
 
-
-def export_flow_matrix(p_reseau, file, ignore_source_dest=False):
+def delete_source_destination(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
-    lib.export_flow_matrix(p_reseau, ensure_bytes(file), ignore_source_dest)
+    lib.delete_source_destination(p_reseau)
+
+def export_flow_matrix(p_reseau, file):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.export_flow_matrix(p_reseau, ensure_bytes(file))
 
 
 def fix_capacite_flow(p_reseau, vitesse_reservoir, vitesse_arcs):

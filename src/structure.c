@@ -23,8 +23,10 @@ const char* get_nom_type_arc(enum type_arcs type) {
 	}
 }
 
-struct graph assignation_graph(nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp) {
+
+struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_min, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp) {
 	struct graph G;
+	G.model = model;
 	G.nb_sommet = nb_sommet;
 	G.nb_arcs = nb_arcs;
 	G.pression_requise = pression_requise;
@@ -57,11 +59,12 @@ struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree
 	return S;
 }
 
-struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination) {
+struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant roughness, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination) {
 	struct arc A;
 	A.type = type_a;
 	A.diametre = diametre;
 	A.longueur = longueur;
+	A.roughness = roughness;
 	A.capacite = capacite;
 	if (flow < 0.0) {
 		struct sommet* sourcetemp = source;
@@ -79,11 +82,12 @@ struct arc assignation_arc_oppose(struct arc* B) {
 	enum type_arcs type_a = B->type;
 	flotant diametre = B->diametre;
 	flotant longueur = B->longueur;
+	flotant roughness = B->roughness;
 	flotant capacite = B->capacite;
 	flotant flow = 0;
 	struct sommet *source = B->destination;
 	struct sommet *destination = B->source;
-	return assignation_arc(type_a, diametre, longueur, capacite, flow, source, destination);
+	return assignation_arc(type_a, diametre, longueur, capacite, roughness, flow, source, destination);
 }
 
 struct arc_symmetrique assignation_arc_symmetrique(struct arc* A, struct arc* B, struct sommet* source) {
@@ -131,7 +135,7 @@ flotant compute_velocity(struct graph* reseau, nbr arc_index) {
 	return (4.0 * (reseau->arcs[arc_index].flow / 1000.0)) / (M_PI * ((reseau->arcs[arc_index].diametre/1000.0) * (reseau->arcs[arc_index].diametre/1000.0)));
 }
 
-void export_flow_matrix(struct graph *G, const char *filename, int source_destination) {
+void export_flow_matrix(struct graph *G, const char *filename) {
 	if (G == NULL || G->sommets == NULL || G->arcs == NULL) exit(GRAPHE_NON_INIT);
 
 	FILE *file = fopen(filename, "w");
@@ -141,13 +145,10 @@ void export_flow_matrix(struct graph *G, const char *filename, int source_destin
 	nbr n_arcs_non_nul = 0;
 	flotant efficacite = G->satifaisabilite;
 	nbr arcs_symmetrique = 0;
-	if (source_destination) {
-		n = G->nb_sommet - 2;
-		n_arcs = G->nb_arcs - ((G->sommet_source->degree + G->sommet_destination->degree)*2);
-	} else {
-		n = G->nb_sommet;
-		n_arcs = G->nb_arcs;
-	};
+
+	n = G->nb_sommet;
+	n_arcs = G->nb_arcs;
+
 
 	flotant **matrice = malloc(n * sizeof(flotant *));
 	if (matrice == NULL) {
