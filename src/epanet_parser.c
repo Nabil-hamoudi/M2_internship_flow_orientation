@@ -55,15 +55,30 @@ EN_Project init_inp_file(char* input, char* log, char* binairy) {
 
 void randomise_demande(EN_Project* ph) {
 	nbr nb_nodes;
-	double demand;
+	double demand, demande_global = 0, demande_global_rand = 0;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
 	for (nbr i = 1; i <= nb_nodes; i++) {
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
 
 		if (demand > 0.0) {
+			demande_global += demand;
 			EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * (((flotant) rand() / RAND_MAX) * 2));
+			EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+			demande_global_rand += demand;
 		}
 	}
+
+	if (demande_global_rand > 0.0) {
+		double ratio_normalisation = demande_global / demande_global_rand;
+		for (nbr i = 1; i <= nb_nodes; i++) {
+			EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+			if (demand > 0.0) {
+				demand = demand * ratio_normalisation;
+				EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand);
+			}
+		}
+	}
+
 }
 
 void modif_multiplicateur(EN_Project* ph, float multiplicateur) {
@@ -125,6 +140,10 @@ int get_time_pattern(EN_Project* ph, int id_node, int patern_id, float temp) {
 	long index_periode = (temp + patStart) / patStep; 
 
 	return (index_periode % patLength) + 1;
+}
+
+void set_random_seed(unsigned int seed) {
+	srand(seed);
 }
 
 struct graph chargement_graph(EN_Project* ph) {

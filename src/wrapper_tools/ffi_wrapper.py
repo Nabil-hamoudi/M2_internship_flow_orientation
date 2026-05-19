@@ -1,4 +1,5 @@
 from librairie._reseau_C import ffi, lib
+import time
 
 def ensure_bytes(chaine):
     if isinstance(chaine, str):
@@ -76,6 +77,10 @@ def randomise_demande(p_projet):
 def modif_multiplicateur(p_projet, mult):
     lib.modif_multiplicateur(p_projet, mult)
 
+def set_random_seed(seed=None):
+    if seed is None:
+        seed = int(time.time())
+    lib.set_random_seed(seed)
 
 def compute_epanet(p_projet):
     lib.comput_flow(p_projet)

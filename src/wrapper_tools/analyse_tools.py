@@ -43,9 +43,9 @@ def extraire_arcs_orientes_dominants(p_reseau, ignore_source_dest):
     return active_set
 
 
-def jaccard_distance(graph1_ptr, graph2_ptr):
-    active1 = extraire_arcs_orientes_dominants(graph1_ptr)
-    active2 = extraire_arcs_orientes_dominants(graph2_ptr)
+def jaccard_distance(graph_ref, graph_sim, ignore_source_dest_ref, ignore_source_dest_sim):
+    active1 = extraire_arcs_orientes_dominants(graph_ref, ignore_source_dest_ref)
+    active2 = extraire_arcs_orientes_dominants(graph_sim, ignore_source_dest_sim)
 
     union = np.union1d(active1, active2)
     if union.shape[0] == 0:
@@ -114,6 +114,13 @@ def compute_velocity(p_reseau, arc_index):
     p_reseau = get_graph_pointer(p_reseau)
     return lib.compute_velocity(p_reseau, arc_index)
 
+def elevation(p_reseau, arc_index):
+    p_reseau = get_graph_pointer(p_reseau)
+    return p_reseau.sommets[arc_index].elevation
+
+def compute_velocity(p_reseau, arc_index):
+    p_reseau = get_graph_pointer(p_reseau)
+    return lib.compute_velocity(p_reseau, arc_index)
 
 def get_pression_requise(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)

@@ -30,7 +30,7 @@ void print_graph_details(struct graph *G, flotant v_res, flotant v_arc) {
 	printf("Pression requise : %.2f | Exposant : %.2f\n", 
 		G->pression_requise, G->exposant_pression);
 	printf("Multiplicateur global de demande : %.4f\n", G->demande_multiplier);
-	printf("Vitesse max Reservoir : %.4f m/min | arcs : %.4f m/min\n", v_res*60, v_arc*60);
+	printf("Vitesse max Reservoir : %.4f m/min | arcs : %.4f m/min\n", v_res, v_arc);
 	printf("-------------------------------------------------------------------------------------\n\n");
 
 	printf("--- LISTE DES SOMMETS ---\n");
@@ -79,10 +79,10 @@ void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vite
 		if (source->type != SOURCE && destination->type != DESTINATION && source->type != DESTINATION && destination->type != SOURCE) {
 			if (source->type == RESERVOIR) {
 				// capacité max pour 3 m/s en litre par minute pour reservoir
-				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (60.0 * vitesse_reservoir)) * 1000.0;
+				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (vitesse_reservoir)) * 1000.0;
 			} else if (destination->type != RESERVOIR) {
 				// capacité pour 2m/s en litre par minute
-				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (60.0 * vitesse_arcs)) * 1000.0;
+				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (vitesse_arcs)) * 1000.0;
 			}
 		}
 	}

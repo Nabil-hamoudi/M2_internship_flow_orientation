@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 SOURCEDEST = ("Ford-Fulkerson", "Edmonds-Karp")
 ALGO = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
@@ -28,7 +28,8 @@ class AnalysisWindow(tk.Frame):
             "Mult. Dest. (Algo)": "m_dst",
             "Satisfaisabilité Réf (%)": "sat_ref",
             "Satisfaisabilité Cible (%)": "sat_tgt",
-            "Erreur Absolue ponderee (WAPE %)": "wape"
+            "Erreur Absolue ponderee (WAPE %)": "wape",
+            "Distance de Jaccard (%)": "jaccard"
         }
 
         self.setup_ui()
@@ -66,7 +67,15 @@ class AnalysisWindow(tk.Frame):
 
         tk.Button(self.sidebar, text="📂 Charger Réseau (.inp)", command=self.load_file, bg="white").pack(fill=tk.X, pady=(0, 10))
 
-        # --- GRID SEARCH ---
+        seed_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
+        seed_frame.pack(fill=tk.X, pady=(0, 5))
+        tk.Label(seed_frame, text="Seed (Opt.):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        self.seed_entry = tk.Entry(seed_frame, width=10)
+        self.seed_entry.pack(side=tk.LEFT, padx=2)
+
+        tk.Button(self.sidebar, text="🎲 Randomiser Demandes", bg="#f39c12", fg="black", 
+                  font=("Segoe UI", 8, "bold"), command=self.randomise_demandes).pack(fill=tk.X, pady=(0, 10))
+
         tk.Label(self.sidebar, text="Balayage (Grid Search)", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
         grid = tk.Frame(self.sidebar, bg="#ecf0f1")
         grid.pack(fill=tk.X, pady=2)
@@ -109,9 +118,9 @@ class AnalysisWindow(tk.Frame):
         v_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
         v_frame.pack(fill=tk.X, pady=5)
         tk.Label(v_frame, text="V. Rés:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.v_res = tk.Entry(v_frame, width=5); self.v_res.insert(0, "3.0"); self.v_res.pack(side=tk.LEFT, padx=2)
+        self.v_res = tk.Entry(v_frame, width=5); self.v_res.insert(0, "180.0"); self.v_res.pack(side=tk.LEFT, padx=2)
         tk.Label(v_frame, text="V. Arc:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.v_arc = tk.Entry(v_frame, width=5); self.v_arc.insert(0, "2.0"); self.v_arc.pack(side=tk.LEFT, padx=2)
+        self.v_arc = tk.Entry(v_frame, width=5); self.v_arc.insert(0, "120.0"); self.v_arc.pack(side=tk.LEFT, padx=2)
 
         tk.Button(self.sidebar, text="⚙️ Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis).pack(fill=tk.X, pady=10)
 
@@ -140,8 +149,16 @@ class AnalysisWindow(tk.Frame):
 
         self.fig = Figure(figsize=(6, 5), dpi=100)
         self.ax = self.fig.add_subplot(111)
+        
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        self.toolbar_frame = tk.Frame(self.plot_frame, bg="white")
+        self.toolbar_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        self.toolbar = NavigationToolbar2Tk(self.canvas, self.toolbar_frame)
+        self.toolbar.update()
+
+        self.canvas.mpl_connect('pick_event', self.on_pick)
 
         # Barre d'état
         self.status_bar = tk.Frame(self, bg="#bdc3c7", height=20)
@@ -191,10 +208,33 @@ class AnalysisWindow(tk.Frame):
     def load_file(self):
         path = filedialog.askopenfilename(filetypes=[("EPANET", "*.inp")])
         if path:
+            self.current_file = path
             self.projet = ffi_wrapper.create_epanet_project(path)
             filename = path.split("/")[-1].split("\\")[-1]
             self.title_label.config(text=f"|  Analyse : {filename}")
             self.status_label.config(text=f"Fichier {filename} chargé.")
+
+    def randomise_demandes(self):
+        if not self.projet:
+            messagebox.showinfo("Info", "Veuillez charger un réseau d'abord.")
+            return
+
+        seed_str = self.seed_entry.get().strip()
+
+        if seed_str:
+            try:
+                seed_val = int(seed_str)
+            except ValueError:
+                messagebox.showwarning("Attention", "La seed doit être un nombre entier.")
+                return
+        else:
+            seed_val = None
+
+        ffi_wrapper.set_random_seed(seed_val)
+        ffi_wrapper.randomise_demande(self.projet)
+
+        self.status_label.config(text=f"Demandes randomisées (Seed: {seed_val}).")
+
 
     def compute_algo(self, reseau, choix):
         match (choix):
@@ -276,7 +316,6 @@ class AnalysisWindow(tk.Frame):
                         self.status_label.config(text=f"Simulation... {current_iter}/{total_iters}")
                         self.update_idletasks()
 
-                        # Génération des deux graphes
                         if algo_ref != "EPANET":
                             ffi_wrapper.free_graph(graph_ref)
                             graph_ref = self.compute_graph(algo_ref, ori_ref, m_src, m_dst, v_res, v_arc)
@@ -284,14 +323,15 @@ class AnalysisWindow(tk.Frame):
                             ffi_wrapper.free_graph(graph_tgt)
                             graph_tgt = self.compute_graph(algo_tgt, ori_tgt, m_src, m_dst, v_res, v_arc)
 
-                        # Calcul des vraies métriques
                         wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt, not (algo_ref in SOURCEDEST), not (algo_tgt in SOURCEDEST)) * 100
                         sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
                         sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
+                        jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt, not (algo_ref in SOURCEDEST), not (algo_tgt in SOURCEDEST)) * 100
 
                         self.results.append({
                             "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
-                            "wape": wape, "sat_ref": sat_ref, "sat_tgt": sat_tgt
+                            "wape": wape, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
+                            "jaccard": jaccard_d
                         })
 
             if current_epa_mult != 1.0:
@@ -303,29 +343,79 @@ class AnalysisWindow(tk.Frame):
         except Exception as e:
             messagebox.showerror("Erreur lors de l'analyse", str(e))
 
-    def update_plot(self, event=None):
-        if not self.results: return
+    def on_pick(self, event):
+        if not hasattr(self, 'current_file') or not self.current_file:
+            return
 
-        # Récupération sécurisée des clés X et Y
+        ind = event.ind[0]
+        res = self.results[ind]
+
+        msg = f"Voulez-vous visualiser ce scénario en détail ?\n\nMult. Demande (EPANET) : {res['m_dst_epa']:.2f}\nMult. Source : {res['m_src']:.2f}\nMult. Dest (Algo) : {res['m_dst']:.2f}"
+        if not messagebox.askyesno("Visualisation Croisée", msg):
+            return
+
+        from src.interface.visualisation import InternalWindow
+
+        def spawn_visualizer(title, algo, ori):
+            win = InternalWindow(self.app_manager.workspace, self.app_manager, title=title)
+            self.app_manager.windows.append(win)
+            win.load_file(self.current_file)
+
+
+            win.algo_var.set(algo)
+            win.ori_var.set(ori)
+
+            win.inputs["Mult. Demande"].delete(0, tk.END)
+            win.inputs["Mult. Demande"].insert(0, str(res["m_dst_epa"]))
+            
+            win.inputs["Vit. Rés (m/min)"].delete(0, tk.END)
+            win.inputs["Vit. Rés (m/min)"].insert(0, self.v_res.get())
+            
+            win.inputs["Vit. Arcs (m/min)"].delete(0, tk.END)
+            win.inputs["Vit. Arcs (m/min)"].insert(0, self.v_arc.get())
+            
+            win.inputs["Prop. Source"].delete(0, tk.END)
+            win.inputs["Prop. Source"].insert(0, str(res["m_src"]))
+            
+            win.inputs["Prop. Demande"].delete(0, tk.END)
+            win.inputs["Prop. Demande"].insert(0, str(res["m_dst"]))
+            
+            win.trigger_run()
+            return win
+
+
+        win_ref = spawn_visualizer(f"Réf: {self.ref_algo.get()}", self.ref_algo.get(), self.ref_ori.get())
+
+
+        win_tgt = spawn_visualizer(f"Cible: {self.tgt_algo.get()}", self.tgt_algo.get(), self.tgt_ori.get())
+
+        win_tgt.place(x=win_ref.winfo_x() + 40, y=win_ref.winfo_y() + 40)
+
+    def update_plot(self, event=None):
+        if not self.results:
+            return
+
+
         x_k = self.keys_map[self.x_var.get()]
         y_k = self.keys_map[self.y_var.get()]
-        
+
         x_data = [r[x_k] for r in self.results]
         y_data = [r[y_k] for r in self.results]
 
         self.fig.clf()
         self.ax = self.fig.add_subplot(111)
 
-        # Gestion conditionnelle de la couleur
         c_selection = self.c_var.get()
         
         if c_selection == "Aucune":
-            self.ax.scatter(x_data, y_data, color='#3498db', edgecolors='black', alpha=0.8, s=60)
+
+            self.ax.scatter(x_data, y_data, color='#3498db', edgecolors='black', alpha=0.8, s=60, picker=5)
         else:
             c_k = self.keys_map[c_selection]
             c_data = [r[c_k] for r in self.results]
-            
-            sc = self.ax.scatter(x_data, y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60)
+
+
+            sc = self.ax.scatter(x_data, y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60, picker=5)
             cbar = self.fig.colorbar(sc, ax=self.ax)
             cbar.set_label(c_selection, fontsize=9)
 

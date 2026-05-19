@@ -16,5 +16,7 @@ void modif_multiplicateur(EN_Project* ph, float multiplicateur);
 
 void randomise_demande(EN_Project* ph);
 
+void set_random_seed(unsigned int seed);
+
 struct graph chargement_graph(EN_Project* ph);
 
