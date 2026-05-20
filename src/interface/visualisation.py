@@ -1,7 +1,7 @@
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, colorchooser
 from src.wrapper_tools import ffi_wrapper
 from src.wrapper_tools import analyse_tools
 import numpy as np
@@ -33,6 +33,13 @@ class InternalWindow(tk.Frame):
 
         self.place(x=30 + len(app_manager.windows)*30, y=30 + len(app_manager.windows)*30, width=1050, height=650)
         self.set_focus()
+
+        self.colors_arc = ["#0000ff", "#00ffff", "#00ff00", "#ffff00", "#ff0000"]
+        self.colors_node = ["#0000ff", "#00ffff", "#00ff00", "#ffff00", "#ff0000"]
+        self.classif_arc = "Equal Intervals"
+        self.classif_node = "Equal Intervals"
+        self.custom_bounds_arc = [0.0, 25.0, 50.0, 75.0, 100.0]
+        self.custom_bounds_node = [0.0, 25.0, 50.0, 75.0, 100.0]
 
     def setup_ui(self, title):
         self.title_bar = tk.Frame(self, bg="#7f8c8d", relief="flat", bd=0, height=25)
@@ -77,9 +84,15 @@ class InternalWindow(tk.Frame):
             
         tk.Label(self.sidebar, text="Colorer les arcs par :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
         self.color_var = tk.StringVar(value="Aucune")
-        cb_color = ttk.Combobox(self.sidebar, textvariable=self.color_var, values=("Aucune", "Flow (Débit)", "Vitesse"), state="readonly")
-        cb_color.pack(fill=tk.X, pady=(0, 10))
+        cb_color = ttk.Combobox(self.sidebar, textvariable=self.color_var, values=("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)"), state="readonly")
+        cb_color.pack(fill=tk.X, pady=(0, 5))
         cb_color.bind("<<ComboboxSelected>>", lambda e: self.draw_graph())
+
+        tk.Label(self.sidebar, text="Colorer les sommets par :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
+        self.color_node_var = tk.StringVar(value="Aucune")
+        cb_node_color = ttk.Combobox(self.sidebar, textvariable=self.color_node_var, values=("Aucune", "Élévation", "Pression", "Demande"), state="readonly")
+        cb_node_color.pack(fill=tk.X, pady=(0, 10))
+        cb_node_color.bind("<<ComboboxSelected>>", lambda e: self.draw_graph())
 
         tk.Button(self.sidebar, text="▶ SIMULER", bg="#27ae60", fg="white", font=(
             "Segoe UI", 9, "bold"), command=self.trigger_run).pack(fill=tk.X, pady=(10, 5))
@@ -114,6 +127,9 @@ class InternalWindow(tk.Frame):
 
         self.grip = tk.Label(self.status_bar, text="◢", bg="#bdc3c7", fg="#7f8c8d", cursor="bottom_right_corner")
         self.grip.pack(side=tk.RIGHT, anchor="se", padx=2)
+        
+        tk.Button(self.sidebar, text="Options des Couleurs", bg="#9b59b6", fg="white", font=("Segoe UI", 8, "bold"), command=self.open_color_settings).pack(fill=tk.X, pady=(5, 10))
+
 
     def setup_bindings(self):
         self.title_bar.bind("<ButtonPress-1>", self.start_drag_window)
@@ -252,7 +268,6 @@ class InternalWindow(tk.Frame):
 
     def trigger_run(self):
         try:
-            mult = float(self.inputs["Mult. Demande"].get())
             v_res, v_arc = float(
                 self.inputs["Vit. Rés (m/min)"].get()), float(self.inputs["Vit. Arcs (m/min)"].get())
             p_src, p_dem = float(self.inputs["Prop. Source"].get()), float(self.inputs["Prop. Demande"].get())
@@ -260,32 +275,34 @@ class InternalWindow(tk.Frame):
 
             self.status_label.config(text="Calcul en cours...")
             self.update_idletasks()
-
+            
+            mult = float(self.inputs["Mult. Demande"].get())
             ffi_wrapper.modif_multiplicateur(self.projet, mult)
 
             if choix_algo == "EPANET":
                 ffi_wrapper.compute_epanet(self.projet)
-                ffi_wrapper.import_epanet_graph(self.projet)
-
-            reseau = None
-            if choix_ori == "EPANET":
-                ffi_wrapper.compute_epanet(self.projet)
                 reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
-            elif choix_ori == "Aucune":
-                reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
             else:
-                reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                self.compute_algo(reseau, choix_ori, p_src, p_dem)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+                reseau = None
+                if choix_ori == "EPANET":
+                    ffi_wrapper.compute_epanet(self.projet)
+                    reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                    ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+                elif choix_ori == "Aucune":
+                    reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                else:
+                    reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                    self.compute_algo(reseau, choix_ori, p_src, p_dem)
+                    ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
 
-            self.compute_algo(reseau, choix_algo, p_src, p_dem)
+                self.compute_algo(reseau, choix_algo, p_src, p_dem)
 
             self.update_dashboard(reseau)
             self.extract_data(reseau)
             ffi_wrapper.free_graph(reseau)
+            ffi_wrapper.modif_multiplicateur(self.projet, 1 / mult)
             self.draw_graph()
 
             self.status_label.config(
@@ -352,114 +369,318 @@ class InternalWindow(tk.Frame):
                 'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour)
             })
 
-    def get_dynamic_color(self, val, max_val, mode_couleur):
-        """Calcule un dégradé mathématique Bleu (Froid/Faible) -> Rouge (Chaud/Fort)."""
-        if mode_couleur == "Aucune":
-            return "#34495e"
+    def open_color_settings(self):
+        """Ouvre une fenêtre permettant de choisir la rampe de couleurs, la classification, et les seuils personnalisés."""
+        win = tk.Toplevel(self)
+        win.title("Symbologie & Couleurs")
+        win.geometry("500x480") # Agrandie pour inclure les champs personnalisés
+        win.configure(bg="white")
+        
+        self.classif_node_var = tk.StringVar(value=getattr(self, 'classif_node', "Equal Intervals"))
+        self.classif_arc_var = tk.StringVar(value=getattr(self, 'classif_arc', "Equal Intervals"))
+        
+        # --- Frame Sommets ---
+        frame_node = tk.LabelFrame(win, text=" Sommets (Couleurs & Classification) ", bg="white", font=("Segoe UI", 9, "bold"))
+        frame_node.pack(fill="x", padx=15, pady=10)
+        
+        color_f_n = tk.Frame(frame_node, bg="white")
+        color_f_n.pack(fill="x", pady=5)
+        self.btn_nodes = []
+        for i, color in enumerate(self.colors_node):
+            btn = tk.Button(color_f_n, bg=color, width=4, height=1, relief="ridge", command=lambda idx=i: self.choose_color('node', idx))
+            btn.pack(side="left", padx=5, expand=True)
+            self.btn_nodes.append(btn)
+            
+        rad_f_n = tk.Frame(frame_node, bg="white")
+        rad_f_n.pack(fill="x", pady=5)
+        tk.Radiobutton(rad_f_n, text="Equal Intervals", variable=self.classif_node_var, value="Equal Intervals", bg="white").pack(side="left", padx=5)
+        tk.Radiobutton(rad_f_n, text="Equal Quantiles", variable=self.classif_node_var, value="Equal Quantiles", bg="white").pack(side="left", padx=5)
+        tk.Radiobutton(rad_f_n, text="Personnalisé", variable=self.classif_node_var, value="Personnalisé", bg="white").pack(side="left", padx=5)
 
-        ratio = min(1.0, max(0.0, val / max_val))
-        r = int(255 * ratio)
-        b = int(255 * (1 - ratio))
-        return f'#{r:02x}00{b:02x}'
+        cust_f_n = tk.Frame(frame_node, bg="white")
+        cust_f_n.pack(fill="x", pady=5)
+        tk.Label(cust_f_n, text="Seuils (Min -> Max) :", bg="white", font=("Segoe UI", 8)).pack(side="left", padx=5)
+        self.entries_node = []
+        for val in getattr(self, 'custom_bounds_node', [0.0, 25.0, 50.0, 75.0, 100.0]):
+            ent = tk.Entry(cust_f_n, width=6, justify="center")
+            ent.insert(0, str(val))
+            ent.pack(side="left", padx=2)
+            self.entries_node.append(ent)
+
+        # --- Frame Arcs ---
+        frame_arc = tk.LabelFrame(win, text=" Arcs (Couleurs & Classification) ", bg="white", font=("Segoe UI", 9, "bold"))
+        frame_arc.pack(fill="x", padx=15, pady=5)
+        
+        color_f_a = tk.Frame(frame_arc, bg="white")
+        color_f_a.pack(fill="x", pady=5)
+        self.btn_arcs = []
+        for i, color in enumerate(self.colors_arc):
+            btn = tk.Button(color_f_a, bg=color, width=4, height=1, relief="ridge", command=lambda idx=i: self.choose_color('arc', idx))
+            btn.pack(side="left", padx=5, expand=True)
+            self.btn_arcs.append(btn)
+            
+        rad_f_a = tk.Frame(frame_arc, bg="white")
+        rad_f_a.pack(fill="x", pady=5)
+        tk.Radiobutton(rad_f_a, text="Equal Intervals", variable=self.classif_arc_var, value="Equal Intervals", bg="white").pack(side="left", padx=5)
+        tk.Radiobutton(rad_f_a, text="Equal Quantiles", variable=self.classif_arc_var, value="Equal Quantiles", bg="white").pack(side="left", padx=5)
+        tk.Radiobutton(rad_f_a, text="Personnalisé", variable=self.classif_arc_var, value="Personnalisé", bg="white").pack(side="left", padx=5)
+
+        cust_f_a = tk.Frame(frame_arc, bg="white")
+        cust_f_a.pack(fill="x", pady=5)
+        tk.Label(cust_f_a, text="Seuils (Min -> Max) :", bg="white", font=("Segoe UI", 8)).pack(side="left", padx=5)
+        self.entries_arc = []
+        for val in getattr(self, 'custom_bounds_arc', [0.0, 25.0, 50.0, 75.0, 100.0]):
+            ent = tk.Entry(cust_f_a, width=6, justify="center")
+            ent.insert(0, str(val))
+            ent.pack(side="left", padx=2)
+            self.entries_arc.append(ent)
+
+        # --- Boutons d'action ---
+        action_frame = tk.Frame(win, bg="white")
+        action_frame.pack(fill="x", pady=15)
+        
+        def apply_and_close():
+            self.classif_node = self.classif_node_var.get()
+            self.classif_arc = self.classif_arc_var.get()
+            try:
+                self.custom_bounds_node = [float(e.get()) for e in self.entries_node]
+                self.custom_bounds_arc = [float(e.get()) for e in self.entries_arc]
+            except ValueError:
+                messagebox.showerror("Erreur de saisie", "Les valeurs personnalisées doivent être des nombres.")
+                return
+            self.draw_graph()
+            win.destroy()
+            
+        tk.Button(action_frame, text="Appliquer & Fermer", bg="#27ae60", fg="white", font=("Segoe UI", 9, "bold"), command=apply_and_close).pack(side="right", padx=15)
+
+    def choose_color(self, type_target, idx):
+        """Ouvre le sélecteur de couleurs et met à jour le tableau correspondant."""
+        current_color = self.colors_arc[idx] if type_target == 'arc' else self.colors_node[idx]
+        color = colorchooser.askcolor(initialcolor=current_color, title=f"Choisir la couleur {idx+1}")
+        
+        if color[1]: 
+            if type_target == 'arc':
+                self.colors_arc[idx] = color[1]
+                self.btn_arcs[idx].config(bg=color[1])
+            else:
+                self.colors_node[idx] = color[1]
+                self.btn_nodes[idx].config(bg=color[1])
+
+    def get_dynamic_color(self, val, boundaries, is_node=False):
+        """Calcule la couleur interpolée selon les seuils (boundaries) des quantiles/intervalles/perso."""
+        palette = self.colors_node if is_node else self.colors_arc
+        
+        if val <= boundaries[0]: return palette[0]
+        if val >= boundaries[-1]: return palette[-1]
+        
+        def hex_to_rgb(h): return tuple(int(h.strip('#')[i:i+2], 16) for i in (0, 2, 4))
+        
+        for i in range(len(boundaries) - 1):
+            if boundaries[i] <= val <= boundaries[i+1]:
+                segment_min = boundaries[i]
+                segment_max = boundaries[i+1]
+                
+                if segment_max == segment_min:
+                    return palette[i]
+                    
+                local_ratio = (val - segment_min) / (segment_max - segment_min)
+                
+                r1, g1, b1 = hex_to_rgb(palette[i])
+                r2, g2, b2 = hex_to_rgb(palette[i+1])
+                
+                r = int(r1 + (r2 - r1) * local_ratio)
+                g = int(g1 + (g2 - g1) * local_ratio)
+                b = int(b1 + (b2 - b1) * local_ratio)
+                
+                return f'#{r:02x}{g:02x}{b:02x}'
+        
+        return palette[-1]
 
     def draw_graph(self):
         self.canvas.delete("all")
         
-        if not self.edges:
-            self.update_color_bar(0.0, "Aucune")
+        if not self.nodes and not self.edges:
+            self.update_color_bar([0]*5, "Aucune", [0]*5, "Aucune")
             return
 
+        # ====================
+        # LIMITES POUR LES ARCS
+        # ====================
         mode_couleur = self.color_var.get()
-        max_val = 0.01
-        
-        if mode_couleur == "Flow (Débit)":
-            max_val = max([e['flow'] for e in self.edges] + [0.01])
-        elif mode_couleur == "Vitesse":
-            max_val = max([e['velocity'] for e in self.edges] + [0.01])
+        edge_vals = []
+        if mode_couleur == "Flow (Débit)": edge_vals = [e['flow'] for e in self.edges]
+        elif mode_couleur == "Vitesse": edge_vals = [e['velocity'] for e in self.edges]
+        elif mode_couleur == "Roughness (Rugosité)": edge_vals = [e['roughness'] for e in self.edges]
 
-        self.update_color_bar(max_val, mode_couleur)
+        boundaries_arc = [0.0, 0.25, 0.5, 0.75, 1.0]
+        if edge_vals:
+            max_val = max(edge_vals + [0.01])
+            classif = getattr(self, 'classif_arc', 'Equal Intervals')
+            
+            if classif == "Personnalisé":
+                boundaries_arc = sorted(getattr(self, 'custom_bounds_arc', [0.0, 25.0, 50.0, 75.0, 100.0]))
+            elif classif == "Equal Quantiles":
+                non_zeros = [v for v in edge_vals if v > 0.0001]
+                if len(non_zeros) >= 2:
+                    boundaries_arc = list(np.quantile(non_zeros, [0, 0.25, 0.5, 0.75, 1.0]))
+                else:
+                    boundaries_arc = [max_val * (i/4.0) for i in range(5)]
+            else: # Equal Intervals
+                boundaries_arc = [max_val * (i/4.0) for i in range(5)]
 
+        # ====================
+        # LIMITES POUR SOMMETS
+        # ====================
+        mode_couleur_node = self.color_node_var.get()
+        node_vals = []
+        if mode_couleur_node == "Élévation": node_vals = [n['elevation'] for n in self.nodes]
+        elif mode_couleur_node == "Pression": node_vals = [n['pression'] for n in self.nodes]
+        elif mode_couleur_node == "Demande": node_vals = [n['demande'] for n in self.nodes]
+
+        boundaries_node = [0.0, 0.25, 0.5, 0.75, 1.0]
+        if node_vals:
+            max_val_node = max(node_vals + [0.01])
+            classif_node = getattr(self, 'classif_node', 'Equal Intervals')
+            
+            if classif_node == "Personnalisé":
+                boundaries_node = sorted(getattr(self, 'custom_bounds_node', [0.0, 25.0, 50.0, 75.0, 100.0]))
+            elif classif_node == "Equal Quantiles":
+                non_zeros = [v for v in node_vals if v > 0.0001]
+                if len(non_zeros) >= 2:
+                    boundaries_node = list(np.quantile(non_zeros, [0, 0.25, 0.5, 0.75, 1.0]))
+                else:
+                    boundaries_node = [max_val_node * (i/4.0) for i in range(5)]
+            else: # Equal Intervals
+                boundaries_node = [max_val_node * (i/4.0) for i in range(5)]
+
+        self.update_color_bar(boundaries_arc, mode_couleur, boundaries_node, mode_couleur_node)
+
+        # --- DESSIN DES ARCS ---
         for idx, e in enumerate(self.edges):
             sx1, sy1 = self.world_to_screen(e['x1'], e['y1'])
             sx2, sy2 = self.world_to_screen(e['x2'], e['y2'])
             mx, my = (sx1 + sx2) / 2, (sy1 + sy2) / 2
             
-            val_color = e['flow'] if mode_couleur == "Flow (Débit)" else e['velocity']
+            val_color = 0.0
+            if mode_couleur == "Flow (Débit)": val_color = e['flow']
+            elif mode_couleur == "Vitesse": val_color = e['velocity']
+            elif mode_couleur == "Roughness (Rugosité)": val_color = e['roughness']
             
+            width_line = 3
             if mode_couleur == "Aucune":
                 color = "#e67e22" if e['type'] == 1 else "black"
-                width_line = 3
-            elif val_color <= 0.001:
+            elif val_color <= 0.0001:  # SI ZERO = NOIR ABSOLU
                 color = "black"
-                width_line = 3
             else:
-                color = self.get_dynamic_color(val_color, max_val, mode_couleur)
-                width_line = 3
+                color = self.get_dynamic_color(val_color, boundaries_arc, is_node=False)
 
             if e['flow'] > 0.001:
                 self.canvas.create_line(sx1, sy1, mx, my, fill=color, width=width_line, arrow=tk.LAST, arrowshape=(8, 10, 3), tags=(f"edge_{idx}", "edge"))
                 self.canvas.create_line(mx, my, sx2, sy2, fill=color, width=width_line, tags=(f"edge_{idx}", "edge"))
             else:
-                # Pour les conduites complètement inactives, pas de flèche
                 self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=width_line, tags=(f"edge_{idx}", "edge"))
 
-        # Tracé des Sommets (tags f"node_{idx}")
-        r = 5 if mode_couleur != "Aucune" else 4
+        # --- DESSIN DES SOMMETS ---
+        r = 5 if (mode_couleur != "Aucune" or mode_couleur_node != "Aucune") else 4
         for idx, n in enumerate(self.nodes):
             sx, sy = self.world_to_screen(n['x'], n['y'])
-            if n['type'] == 1: # Jonction
-                self.canvas.create_oval(sx-r, sy-r, sx+r, sy+r, fill="#2c3e50", outline="white", tags=(f"node_{idx}", "node"))
-            elif n['type'] == 3: # Réservoir
-                self.canvas.create_polygon(sx-r*2, sy-r, sx-r, sy+r, sx+r, sy+r, sx+r*2, sy-r, fill="#3498db", outline="black", tags=(f"node_{idx}", "node"))
-            elif n['type'] == 4: # Tank
-                self.canvas.create_rectangle(sx-r, sy-r*2, sx+r, sy+r*2, fill="#2ecc71", outline="black", tags=(f"node_{idx}", "node"))
+            
+            val_color_node = 0.0
+            if mode_couleur_node == "Élévation": val_color_node = n['elevation']
+            elif mode_couleur_node == "Pression": val_color_node = n['pression']
+            elif mode_couleur_node == "Demande": val_color_node = n['demande']
+                
+            if mode_couleur_node == "Aucune":
+                if n['type'] == 1: node_color = "#2c3e50"
+                elif n['type'] == 3: node_color = "#3498db"
+                elif n['type'] == 4: node_color = "#2ecc71"
+                else: node_color = "black"
+            elif val_color_node <= 0.0001: # SI ZERO = NOIR ABSOLU
+                node_color = "black"
+            else:
+                node_color = self.get_dynamic_color(val_color_node, boundaries_node, is_node=True)
 
+            if n['type'] == 1:
+                self.canvas.create_oval(sx-r, sy-r, sx+r, sy+r, fill=node_color, outline="white", tags=(f"node_{idx}", "node"))
+            elif n['type'] == 3:
+                self.canvas.create_polygon(sx-r*2, sy-r, sx-r, sy+r, sx+r, sy+r, sx+r*2, sy-r, fill=node_color, outline="black", tags=(f"node_{idx}", "node"))
+            elif n['type'] == 4:
+                self.canvas.create_rectangle(sx-r, sy-r*2, sx+r, sy+r*2, fill=node_color, outline="black", tags=(f"node_{idx}", "node"))
 
-    def update_color_bar(self, max_val, mode_couleur):
-        """Dessine la barre de légende verticale (Bleu->Rouge) de manière figée."""
-        # Nettoyage complet du panneau de légende
+    def update_color_bar(self, boundaries_arc, mode_couleur_edge, boundaries_node, mode_couleur_node):
+        """Dessine et gère intelligemment les légendes superposées avec les valeurs cibles (quantiles/intervalles/perso)."""
         for widget in self.legend_frame.winfo_children():
             widget.destroy()
 
-        if mode_couleur == "Aucune":
+        if mode_couleur_edge == "Aucune" and mode_couleur_node == "Aucune":
             self.legend_frame.config(width=0)
             return
         
-        self.legend_frame.config(width=100) # Légende légèrement rétrécie
-        
-        # --- Titre et Unité (Fixés en haut) ---
-        unit = "(L/min)" if mode_couleur == "Flow (Débit)" else "(m/s)"
-        label_text = f"{mode_couleur.split(' (')[0]}\n{unit}"
-        tk.Label(self.legend_frame, text=label_text, bg="white", fg="black", font=("Segoe UI", 9, "bold")).place(x=50, y=20, anchor="n")
+        self.legend_frame.config(width=110)
 
-        # --- Paramètres géométriques réduits et fixes ---
-        grad_height = 300 # Hauteur réduite
-        grad_width = 20   # Largeur réduite
-        
-        # --- CANVAS DU GRADIENT ---
-        # Placé de manière absolue (ne bougera JAMAIS)
-        grad_canvas = tk.Canvas(self.legend_frame, width=grad_width, height=grad_height, bg="white", highlightthickness=1, relief="solid")
-        grad_canvas.place(x=70, y=70) # Position fixe depuis le haut-gauche
-        
-        # Dessin du gradient vertical 
-        for y in range(grad_height):
-            ratio = (grad_height - y) / grad_height 
-            color = self.get_dynamic_color(ratio * max_val, max_val, mode_couleur)
-            grad_canvas.create_line(0, y, grad_width, y, fill=color)
-
-        # --- ÉTIQUETTES DE VALEURS ---
+        center_x = 75
+        current_y = 15
         lbl_font = ("Segoe UI", 8)
         
-        # Haut (Max)
-        tk.Label(self.legend_frame, text=f"{max_val:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70, anchor="e")
-        # 3/4
-        tk.Label(self.legend_frame, text=f"{max_val*0.75:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + (grad_height * 0.25), anchor="e")
-        # Milieu (1/2)
-        tk.Label(self.legend_frame, text=f"{max_val*0.5:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + (grad_height * 0.5), anchor="e")
-        # 1/4
-        tk.Label(self.legend_frame, text=f"{max_val*0.25:.2f}", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + (grad_height * 0.75), anchor="e")
-        # Bas (Zéro)
-        tk.Label(self.legend_frame, text=f"0.00", bg="white", fg="black", font=lbl_font).place(x=65, y=70 + grad_height, anchor="e")
+        nb_legends = (mode_couleur_edge != "Aucune") + (mode_couleur_node != "Aucune")
+        grad_height = 180 if nb_legends == 2 else 250
+        grad_width = 15
+
+        def draw_gradient_strip(canvas, palette):
+            """Dessine une bande de couleurs régulièrement espacée indépendamment des valeurs"""
+            def hex_to_rgb(h): return tuple(int(h.strip('#')[i:i+2], 16) for i in (0, 2, 4))
+            n_colors = len(palette)
+            for y in range(grad_height):
+                ratio = (grad_height - y) / grad_height 
+                segment = ratio * (n_colors - 1)
+                idx1 = int(segment)
+                idx2 = min(idx1 + 1, n_colors - 1)
+                local_ratio = segment - idx1
+                r1, g1, b1 = hex_to_rgb(palette[idx1])
+                r2, g2, b2 = hex_to_rgb(palette[idx2])
+                r = int(r1 + (r2 - r1) * local_ratio)
+                g = int(g1 + (g2 - g1) * local_ratio)
+                b = int(b1 + (b2 - b1) * local_ratio)
+                canvas.create_line(0, y, grad_width, y, fill=f'#{r:02x}{g:02x}{b:02x}')
+
+        # --- 1. Légende des Sommets (EN HAUT) ---
+        if mode_couleur_node != "Aucune":
+            unit = "(m)" if mode_couleur_node in ("Élévation", "Pression") else "(L/min)"
+            label_text = f"Sommets:\n{mode_couleur_node}\n{unit}"
+            tk.Label(self.legend_frame, text=label_text, bg="white", fg="black", font=("Segoe UI", 8, "bold")).place(x=center_x, y=current_y, anchor="n")
+            
+            y_offset = current_y + 50
+            grad_canvas = tk.Canvas(self.legend_frame, width=grad_width, height=grad_height, bg="white", highlightthickness=1, relief="solid")
+            grad_canvas.place(x=center_x - (grad_width/2), y=y_offset)
+            
+            draw_gradient_strip(grad_canvas, self.colors_node)
+
+            # Placements des 5 valeurs aux limites correspondantes
+            for i in range(5):
+                val = boundaries_node[4 - i] # 4=Max (top), 0=Min (bottom)
+                y_pos = y_offset + (grad_height * (i / 4.0))
+                tk.Label(self.legend_frame, text=f"{val:.2f}", bg="white", fg="black", font=lbl_font).place(x=center_x - 12, y=y_pos, anchor="e")
+            
+            current_y = y_offset + grad_height + 20
+
+        # --- 2. Légende des Arcs (EN BAS) ---
+        if mode_couleur_edge != "Aucune":
+            unit = "(L/min)" if mode_couleur_edge == "Flow (Débit)" else ("" if mode_couleur_edge == "Roughness (Rugosité)" else "(m/s)")
+            label_text = f"Arcs:\n{mode_couleur_edge.split(' (')[0]}\n{unit}"
+            tk.Label(self.legend_frame, text=label_text, bg="white", fg="black", font=("Segoe UI", 8, "bold")).place(x=center_x, y=current_y, anchor="n")
+            
+            y_offset = current_y + 50
+            grad_canvas = tk.Canvas(self.legend_frame, width=grad_width, height=grad_height, bg="white", highlightthickness=1, relief="solid")
+            grad_canvas.place(x=center_x - (grad_width/2), y=y_offset)
+            
+            draw_gradient_strip(grad_canvas, self.colors_arc)
+
+            # Placements des 5 valeurs aux limites correspondantes
+            for i in range(5):
+                val = boundaries_arc[4 - i] # 4=Max (top), 0=Min (bottom)
+                y_pos = y_offset + (grad_height * (i / 4.0))
+                tk.Label(self.legend_frame, text=f"{val:.2f}", bg="white", fg="black", font=lbl_font).place(x=center_x - 12, y=y_pos, anchor="e")
+
 
     def reset_view(self):
         if not self.nodes:
@@ -475,7 +696,6 @@ class InternalWindow(tk.Frame):
         self.draw_graph()
 
     def on_canvas_click(self, event):
-        # Détecte l'élément survolé au moment du double-clic
         item = self.canvas.find_withtag("current")
         if not item: return
         
@@ -520,6 +740,7 @@ class InternalWindow(tk.Frame):
         msg += f"  • Capacité Max : {e['cap_retour']:.2f} L/min\n\n"
         msg += f" - Métriques actives de rendu :\n"
         msg += f"  • Débit dominant : {e['flow']:.4f} L/min\n"
+        msg += f"  • Rugosité (Roughness) : {e['roughness']}\n"
         msg += f"  • Vitesse calculée : {e['velocity']:.4f} m/min"
         
         messagebox.showinfo(f"Double Conduite #{idx}", msg)

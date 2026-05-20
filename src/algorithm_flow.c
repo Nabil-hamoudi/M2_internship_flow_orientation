@@ -96,10 +96,10 @@ void fix_capacite_flow_oriente(struct graph* reseau, float vitesse_reservoir, fl
 			if (reseau->arcs[i].flow > 0.0) {
 				if (source->type == RESERVOIR) {
 					// capacité max pour 3 m/s en litre par minute pour reservoir
-					reseau->arcs[i].capacite =  (M_PI * (pow((reseau->arcs[i].diametre/1000), 2.0)/4.0) * (60.0 * vitesse_reservoir)) * 1000.0;
+					reseau->arcs[i].capacite =  (M_PI * (pow((reseau->arcs[i].diametre/1000), 2.0)/4.0) * (vitesse_reservoir)) * 1000.0;
 				} else if (destination->type != RESERVOIR) {
 					// capacité pour 2m/s en litre par minute
-					reseau->arcs[i].capacite =  (M_PI * (pow((reseau->arcs[i].diametre/1000), 2.0)/4.0) * (60.0 * vitesse_arcs)) * 1000.0;
+					reseau->arcs[i].capacite =  (M_PI * (pow((reseau->arcs[i].diametre/1000), 2.0)/4.0) * (vitesse_arcs)) * 1000.0;
 				}
 			} else {
 				reseau->arcs[i].capacite = 0.0;
@@ -110,19 +110,39 @@ void fix_capacite_flow_oriente(struct graph* reseau, float vitesse_reservoir, fl
 
 
 void delete_source_destination(struct graph* reseau) {
+	struct sommet *source = reseau->sommet_source;
+	struct sommet *destination = reseau->sommet_destination;
+	for (int i = 0; i < source->degree; i++) {
+		struct sommet *source_destination = source->arcs[i].arc_sortant->destination;
+		source_destination->degree -= 1;
+	}
+
+	for (int i = 0; i < destination->degree; i++) {
+		struct sommet *source_destination = destination->arcs[i].arc_entrant->source;
+		source_destination->degree -= 1;
+	}
+
 	reseau->nb_sommet -= 2;
 	reseau->nb_arcs -= ((reseau->sommet_source->degree + reseau->sommet_destination->degree)*2);
+
+	free(source->arcs);
+	free(destination->arcs);
+
+	reseau->sommet_source = NULL;
+	reseau->sommet_destination = NULL;
+
 }
 
 void ajout_source_destination(struct graph* reseau) {
 	nbr degree_source = 0, degree_destination = 0;
 	for (int i=0; i < reseau->nb_sommet ; i++) {
-		if (reseau->sommets[i].demande > 0) {
+		if (reseau->sommets[i].demande > 0.0) {
 			degree_destination++;
-		} else if (reseau->sommets[i].type == RESERVOIR ||reseau->sommets[i].demande < 0.0) {
+		} else if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].demande < 0.0) {
 			degree_source++;
 		}
 	}
+
 	reseau->nb_sommet += 2;
 
 	reseau->sommets[reseau->nb_sommet-2] = assignation_sommet(SOURCE, degree_source, 0, 0, 0, 0, 0, 0);
@@ -130,7 +150,7 @@ void ajout_source_destination(struct graph* reseau) {
 	reseau->sommet_source = &reseau->sommets[reseau->nb_sommet-2];
 	reseau->sommet_destination = &reseau->sommets[reseau->nb_sommet-1];
 	nbr lien_source = 0, lien_destination = 0;
-	for (int i=0; i < reseau->nb_sommet ; i++) {
+	for (int i=0; i < reseau->nb_sommet-2 ; i++) {
 		if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].demande < 0.0) {
 			reseau->nb_arcs += 2;
 			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, 0.0, reseau->sommet_source, &reseau->sommets[i]);
@@ -215,6 +235,7 @@ void marque_zero(struct graph* reseau) {
 }
 
 void compute_flow_ford_fukerson(struct graph* reseau) {
+	marque_zero(reseau);
 	struct sommet* sommet = reseau->sommet_source;
 	flotant result = 1.0;
 	while (result != -1.0) {
@@ -267,6 +288,7 @@ flotant parcours_ek(struct file* file, struct file** end_file) {
 }
 
 void compute_flow_edmonds_karp(struct graph* reseau) {
+	marque_zero(reseau);
 	flotant new_flot;
 	do {
 		struct file* file = malloc(sizeof(struct file));

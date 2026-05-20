@@ -28,6 +28,7 @@ class AnalysisWindow(tk.Frame):
             "Satisfaisabilité Réf (%)": "sat_ref",
             "Satisfaisabilité Cible (%)": "sat_tgt",
             "Erreur Absolue ponderee (WAPE %)": "wape",
+            "Erreur ponderee (%)": "wp",
             "Distance de Jaccard (%)": "jaccard"
         }
 
@@ -254,23 +255,23 @@ class AnalysisWindow(tk.Frame):
     def compute_graph(self, algo, ori, m_src, m_dst, v_res, v_arc):
         if algo == "EPANET":
             ffi_wrapper.compute_epanet(self.projet)
-            ffi_wrapper.import_epanet_graph(self.projet)
-
-        reseau = None
-        if ori == "EPANET":
-            ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
-            ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
-        elif ori == "Aucune":
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
-            ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
         else:
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
-            ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-            self.compute_algo(reseau, ori, m_src, m_dst)
-            ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+            reseau = None
+            if ori == "EPANET":
+                ffi_wrapper.compute_epanet(self.projet)
+                reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+            elif ori == "Aucune":
+                reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+            else:
+                reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                self.compute_algo(reseau, ori, m_src, m_dst)
+                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
 
-        self.compute_algo(reseau, algo, m_src, m_dst)
+            self.compute_algo(reseau, algo, m_src, m_dst)
 
         return reseau
 
@@ -323,13 +324,14 @@ class AnalysisWindow(tk.Frame):
                             graph_tgt = self.compute_graph(algo_tgt, ori_tgt, m_src, m_dst, v_res, v_arc)
 
                         wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
+                        wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
                         sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
                         sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
                         jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
 
                         self.results.append({
                             "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
-                            "wape": wape, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
+                            "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
                             "jaccard": jaccard_d
                         })
 

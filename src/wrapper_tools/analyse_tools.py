@@ -89,6 +89,55 @@ def extraire_arcs_orientes_dominants(p_reseau):
 
     return active_set
 
+def extraire_arcs_nulles(p_reseau):
+    nb_tuyaux = p_reseau.nb_arcs // 2
+
+    active_set = np.zeros(nb_tuyaux*2, dtype=np.int32)
+    set_size = 0
+
+    idx_aller = 0
+    idx_retour = 1
+    for k in range(nb_tuyaux):
+        flow_aller = p_reseau.arcs[idx_aller].flow
+        flow_retour = p_reseau.arcs[idx_retour].flow
+
+        if flow_aller == 0.0 and flow_retour == 0.0:
+            active_set[set_size] = idx_aller
+            set_size += 1
+            active_set[set_size] = idx_retour
+            set_size += 1
+
+        idx_aller += 2
+        idx_retour += 2
+
+    active_set.resize(set_size)
+
+    return active_set
+
+def extraire_arcs_egaux(p_reseau):
+    nb_tuyaux = p_reseau.nb_arcs // 2
+
+    active_set = np.zeros(nb_tuyaux*2, dtype=np.int32)
+    set_size = 0
+
+    idx_aller = 0
+    idx_retour = 1
+    for k in range(nb_tuyaux):
+        flow_aller = p_reseau.arcs[idx_aller].flow
+        flow_retour = p_reseau.arcs[idx_retour].flow
+
+        if flow_aller == flow_retour:
+            active_set[set_size] = idx_aller
+            set_size += 1
+            active_set[set_size] = idx_retour
+            set_size += 1
+
+        idx_aller += 2
+        idx_retour += 2
+
+    active_set.resize(set_size)
+
+    return active_set
 
 def jaccard_distance(graph_ref, graph_sim):
     active1 = extraire_arcs_orientes_dominants(graph_ref)
@@ -191,6 +240,30 @@ def get_wape_flow(graph_ref, graph_sim):
         somme_erreurs += np.absolute(a1.flow - a2.flow)
         
         somme_flux_ref += np.absolute(a1.flow)
+
+    if somme_flux_ref == 0.0:
+        return 0.0 
+
+    return somme_erreurs / somme_flux_ref
+
+def get_wp_flow(graph_ref, graph_sim):
+    gref = get_graph_pointer(graph_ref)
+    gsim = get_graph_pointer(graph_sim)
+
+    if get_n_arcs(gref) != get_n_arcs(gsim):
+        return -1.0
+
+    somme_erreurs = 0.0
+    somme_flux_ref = 0.0
+
+    n = get_n_arcs(gsim)
+
+    for i in range(n):
+        a1, a2 = graph_ref.arcs[i], graph_sim.arcs[i]
+        
+        somme_erreurs += a1.flow - a2.flow
+        
+        somme_flux_ref += a1.flow
 
     if somme_flux_ref == 0.0:
         return 0.0 
