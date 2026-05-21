@@ -95,21 +95,10 @@ int get_time_pattern(EN_Project* ph, int id_node, int patern_id, float temp) {
 * Revoir pour ajouter multiplicateur pattern
 */
 void randomise_demande(EN_Project* ph) {
-	nbr nb_nodes, pattern_stamp;
-	double demand, pattern_id, demande_global = 0, demande_global_rand = 0;
+	nbr nb_nodes;
+	double demand, demande_global = 0, demande_global_rand = 0;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
 	for (nbr i = 1; i <= nb_nodes; i++) {
-
-
-		EN_getdemandpattern(*ph, i, 1, &pattern_id);
-		if (pattern_id > 0.0) {
-			pattern_stamp = get_time_pattern(ph, i, pattern_id, G.temp);
-			EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &multiplier);
-		}
-
-
-
-
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
 
 		if (demand > 0.0) {
