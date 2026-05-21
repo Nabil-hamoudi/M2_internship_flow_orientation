@@ -296,12 +296,11 @@ class AnalysisWindow(tk.Frame):
             self.results = []
             total_iters = len(arr_src) * len(arr_epa) * len(arr_dst)
             current_iter = 0
-            current_epa_mult = 1.0 
             graph_ref = None
             graph_tgt = None
 
             for m_epa in arr_epa:
-                ffi_wrapper.modif_multiplicateur(self.projet, m_epa / current_epa_mult)
+                ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
                 current_epa_mult = m_epa
                 if algo_ref == "EPANET":
                     graph_ref = self.compute_graph(algo_ref, ori_ref, 1.0, 1.0, 1.0, 1.0)
@@ -335,7 +334,6 @@ class AnalysisWindow(tk.Frame):
                             "jaccard": jaccard_d
                         })
 
-            if current_epa_mult != 1.0:
                 ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / current_epa_mult)
 
             self.status_label.config(text=f"Analyse terminée ({total_iters} points).")

@@ -3,6 +3,7 @@
 #include "epanet2_2.h"
 #include "epanet2_enums.h"
 #include "structure.h"
+#include "epanet_parser.h"
 #include "float.h"
 
 enum type_sommet parser_type_sommet(int type_epanet) {
@@ -56,19 +57,59 @@ enum demand_model parser_type_model(int type_epanet) {
 	}
 }
 
-EN_Project init_inp_file(char* input, char* log, char* binairy) {
+EN_Project create_project() {
 	EN_Project ph;
 	EN_createproject(&ph);
-	int err = EN_open(ph, input, log, binairy);
-	if (err > 0) exit(31);
 	return ph;
 }
 
+EN_Project init_inp_file(char* input, char* log, char* binairy) {
+	EN_Project ph = create_project();
+	int err = EN_open(ph, input, log, binairy);
+	if (err > 0) exit(OPEN_EPANET_INP_ERROR);
+	return ph;
+}
+
+long get_time(EN_Project* ph) {
+	long duree_totale, heure_debut;
+	ENgettimeparam(EN_DURATION, &duree_totale); 
+	ENgettimeparam(EN_STARTTIME, &heure_debut); 
+
+	return heure_debut + duree_totale;
+}
+
+int get_time_pattern(EN_Project* ph, int id_node, int patern_id, float temp) {
+	long patStep, patStart;
+	int patLength;
+
+	EN_gettimeparam(*ph, EN_PATTERNSTEP, &patStep);
+	EN_gettimeparam(*ph, EN_PATTERNSTART, &patStart);
+	EN_getpatternlen(*ph, patern_id, &patLength);
+
+	long index_periode = (temp + patStart) / patStep; 
+
+	return (index_periode % patLength) + 1;
+}
+
+/*
+* Revoir pour ajouter multiplicateur pattern
+*/
 void randomise_demande(EN_Project* ph) {
-	nbr nb_nodes;
-	double demand, demande_global = 0, demande_global_rand = 0;
+	nbr nb_nodes, pattern_stamp;
+	double demand, pattern_id, demande_global = 0, demande_global_rand = 0;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
 	for (nbr i = 1; i <= nb_nodes; i++) {
+
+
+		EN_getdemandpattern(*ph, i, 1, &pattern_id);
+		if (pattern_id > 0.0) {
+			pattern_stamp = get_time_pattern(ph, i, pattern_id, G.temp);
+			EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &multiplier);
+		}
+
+
+
+
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
 
 		if (demand > 0.0) {
@@ -95,14 +136,6 @@ void modif_multiplicateur(EN_Project* ph, float multiplicateur) {
 	double mult;
 	EN_getoption(*ph, EN_DEMANDMULT, &mult);
 	EN_setoption(*ph, EN_DEMANDMULT, mult * multiplicateur);
-}
-
-long get_time(EN_Project* ph) {
-	long duree_totale, heure_debut;
-	ENgettimeparam(EN_DURATION, &duree_totale); 
-	ENgettimeparam(EN_STARTTIME, &heure_debut); 
-
-	return heure_debut + duree_totale;
 }
 
 void comput_flow(EN_Project* ph) {
@@ -132,24 +165,10 @@ flotant compute_satisfaction_rate_epanet(EN_Project* ph) {
 		}
 	}
 
-	if (total_demand == 0.0) {
-        return 1.0; 
-    }
+	if (total_demand == 0.0) return 1.0; 
+
 
 	return total_delivered / total_demand;
-}
-
-int get_time_pattern(EN_Project* ph, int id_node, int patern_id, float temp) {
-	long patStep, patStart;
-	int patLength;
-
-	EN_gettimeparam(*ph, EN_PATTERNSTEP, &patStep);   // Ex: 3600 s
-	EN_gettimeparam(*ph, EN_PATTERNSTART, &patStart);
-	EN_getpatternlen(*ph, patern_id, &patLength);
-
-	long index_periode = (temp + patStart) / patStep; 
-
-	return (index_periode % patLength) + 1;
 }
 
 void set_random_seed(unsigned int seed) {
@@ -170,10 +189,11 @@ struct graph chargement_graph(EN_Project* ph) {
 	for (int i=1; i <= nb_sommets ; i++) {
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande_temp);
 		EN_getnodetype(*ph, i, &temp_type);
-		if (demande_temp != 0 || temp_type == EN_RESERVOIR) {
+		if (demande_temp != 0.0 || temp_type == EN_RESERVOIR) {
 			degree_supp++;
 		};
 	}
+
 	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 0.0, demande_multiplier, compute_satisfaction_rate_epanet(ph), get_time(ph));
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
