@@ -7,6 +7,8 @@ void print_graph_details(struct graph *G, flotant v_res, flotant v_arc);
 
 void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
 
+void fix_capacite_flow_calcule(struct graph* reseau);
+
 void fix_capacite_flow_oriente(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
 
 void delete_source_destination(struct graph* reseau);

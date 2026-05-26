@@ -60,9 +60,9 @@ struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_ar
 	G.satifaisabilite = satifaisabilite;
 	G.temp = temp;
 	G.sommets = malloc((G.nb_sommet+sommet_supplementaire) * sizeof(struct sommet));
-	if (G.sommets == NULL && G.nb_sommet > 0) exit(ALLOCATION_FAIL_GRAPH);
+	if (G.sommets == NULL && G.nb_sommet+sommet_supplementaire > 0) exit(ALLOCATION_FAIL_GRAPH);
 	G.arcs = malloc((G.nb_arcs+arcs_supplementaire) * sizeof(struct arc));
-	if (G.arcs == NULL && G.nb_arcs > 0) exit(ALLOCATION_FAIL_GRAPH);
+	if (G.arcs == NULL && G.nb_arcs+arcs_supplementaire > 0) exit(ALLOCATION_FAIL_GRAPH);
 	return G;
 }
 
@@ -71,7 +71,7 @@ struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_ar
 *
 * Ici degree ajouter correspond a de la memoire supplementaire pour nottament pour l'ajout de la super source et super destination
 */
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant demande, flotant coord_x, flotant coord_y) {
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant satisfaction, flotant demande, flotant coord_x, flotant coord_y) {
 	struct sommet S;
 	struct coordonnee C;
 	S.type = type_s;
@@ -80,11 +80,12 @@ struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree
 	S.pression = pression;
 	S.demande = demande;
 	S.marque = 0;
+	S.satisfaction = satisfaction;
 	C.x = coord_x;
 	C.y = coord_y;
 	S.position = C;
 	S.arcs = malloc((S.degree + degree_ajouter) * sizeof(struct arc_symmetrique));
-	if (S.arcs == NULL && S.degree > 0) exit(ALLOCATION_FAIL_SOMMETS);
+	if (S.arcs == NULL && S.degree + degree_ajouter > 0) exit(ALLOCATION_FAIL_SOMMETS);
 	return S;
 }
 
@@ -105,6 +106,7 @@ struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant long
 		flow = flow * -1;
 	}
 	A.flow = flow;
+	A.marque = 0;
 	A.source = source;
 	A.destination = destination;
 	return A;
@@ -164,13 +166,18 @@ void compute_satisfaction_rate(struct graph* reseau) {
 	for (int i = 0; i < deg; i++) {
 		struct arc *a = reseau->sommet_destination->arcs[i].arc_entrant;
 		total_satisfaction += a->flow;
+		if (a->source->demande > 0.0) {
+			a->source->satisfaction = a->flow / a->source->demande;
+		} else {
+			a->source->satisfaction = 1.0;
+		}
 	}
 
 	reseau->satifaisabilite = total_satisfaction / reseau->demande_global;
 }
 
 flotant compute_velocity(struct graph* reseau, nbr arc_index) {
-	return (4.0 * (reseau->arcs[arc_index].flow / 1000.0)) / (M_PI * ((reseau->arcs[arc_index].diametre/1000.0) * (reseau->arcs[arc_index].diametre/1000.0)));
+	return ((4.0 * (reseau->arcs[arc_index].flow / 1000.0)) / (M_PI * ((reseau->arcs[arc_index].diametre/1000.0) * (reseau->arcs[arc_index].diametre/1000.0)))) / 60;
 }
 
 void export_flow_matrix(struct graph *G, const char *filename) {

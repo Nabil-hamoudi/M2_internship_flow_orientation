@@ -1,4 +1,5 @@
 #include "epanet2_2.h"
+#include "structure.h"
 
 #define OPEN_EPANET_INP_ERROR 31
 
@@ -17,6 +18,8 @@ void modif_multiplicateur(EN_Project* ph, float multiplicateur);
 void randomise_demande(EN_Project* ph);
 
 void set_random_seed(unsigned int seed);
+
+void reget_epanet_flow(EN_Project* ph, struct graph* reseau);
 
 struct graph chargement_graph(EN_Project* ph);
 

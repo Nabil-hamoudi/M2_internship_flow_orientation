@@ -1,8 +1,8 @@
+
 #include "stdlib.h"
 #include "epanet2.h"
 #include "epanet2_2.h"
 #include "epanet2_enums.h"
-#include "structure.h"
 #include "epanet_parser.h"
 #include "float.h"
 
@@ -136,32 +136,61 @@ void fermeture_free_project(EN_Project* ph) {
 	EN_deleteproject(*ph);
 }
 
-flotant compute_satisfaction_rate_epanet(EN_Project* ph) {
+void compute_satisfaction_rate_epanet(EN_Project* ph, struct graph* reseau) {
 	nbr nb_nodes;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
 
 	flotant total_demand = 0.0;
 	flotant total_delivered = 0.0;
 
-	flotant demand, delivered;
+	double demand, delivered;
 	for (nbr i = 1; i <= nb_nodes; i++) {
 		EN_getnodevalue(*ph, i, EN_FULLDEMAND, &demand);
 		EN_getnodevalue(*ph, i, EN_DEMANDFLOW, &delivered);
 
 		if (demand > 0.0) {
+			reseau->sommets[i-1].satisfaction = delivered / demand;
 			total_demand += demand;
 			total_delivered += delivered;
+		} else {
+			reseau->sommets[i-1].satisfaction = 1.0;
+			
 		}
 	}
 
-	if (total_demand == 0.0) return 1.0; 
-
-
-	return total_delivered / total_demand;
+	if (total_demand == 0.0) {
+		reseau->satifaisabilite = 1.0;
+	} else {
+		reseau->satifaisabilite = total_delivered / total_demand;
+	}
 }
 
 void set_random_seed(unsigned int seed) {
 	srand(seed);
+}
+
+void reget_epanet_flow(EN_Project* ph, struct graph* reseau) {
+	double flow;
+	int noeud1, noeud2;
+	for (nbr i=0, j=1; j <= reseau->nb_arcs / 2; j++, i+=2) {
+		EN_getlinknodes(*ph, j, &noeud1, &noeud2);
+		noeud1 -= 1;
+		noeud2 -= 1;
+		EN_getlinkvalue(*ph, j, EN_FLOW, &flow);
+		if (flow < 0.0) {
+			int noeud1temp = noeud2;
+			noeud1 = noeud2;
+			noeud2 = noeud1temp;
+			flow = flow * -1;
+		}
+		if (reseau->arcs[i].source - reseau->sommets == noeud1) {
+			reseau->arcs[i].flow = flow;
+			reseau->arcs[i+1].flow = 0.0;
+		} else {
+			reseau->arcs[i+1].flow = flow;
+			reseau->arcs[i].flow = 0.0;
+		}
+	}
 }
 
 struct graph chargement_graph(EN_Project* ph) {
@@ -183,7 +212,7 @@ struct graph chargement_graph(EN_Project* ph) {
 		};
 	}
 
-	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 0.0, demande_multiplier, compute_satisfaction_rate_epanet(ph), get_time(ph));
+	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 1.0, demande_multiplier, 1.0, get_time(ph));
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -209,10 +238,10 @@ struct graph chargement_graph(EN_Project* ph) {
 		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
 		if (demande == 0 && type_node != RESERVOIR) {
 			G.demande_global += demande * G.demande_multiplier * multiplier;
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, demande * G.demande_multiplier * multiplier, x, y);
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, 0.0, demande * G.demande_multiplier * multiplier, x, y);
 		} else {
 			G.demande_global += demande * G.demande_multiplier * multiplier;
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, demande * G.demande_multiplier * multiplier, x, y);
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, 0.0, demande * G.demande_multiplier * multiplier, x, y);
 		}
 		degrees[i-1] = 0;
 	}
@@ -235,7 +264,10 @@ struct graph chargement_graph(EN_Project* ph) {
 		degrees[noeud2-1] += 1;
 	}
 
+	compute_satisfaction_rate_epanet(ph, &G);
+
 	free(degrees);
 	return G;
 }
+
 

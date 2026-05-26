@@ -8,6 +8,9 @@ def get_sommet_type(p_reseau, index):
 def get_sommet_degree(p_reseau, index):
     return get_graph_pointer(p_reseau).sommets[index].degree
 
+def get_sommet_satisfaction(p_reseau, index):
+    return get_graph_pointer(p_reseau).sommets[index].satisfaction
+
 def get_sommet_elevation(p_reseau, index):
     return get_graph_pointer(p_reseau).sommets[index].elevation
 
@@ -165,11 +168,17 @@ def get_n_arcs(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     return p_reseau.nb_arcs
 
+def get_n_arcs_no(p_reseau):
+    return get_n_arcs(p_reseau) / 2
 
 def get_n_arcs_non_nul(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     arcs = extraire_arcs_orientes_dominants(p_reseau)
     return arcs.shape[0]
+
+def get_n_arcs_nulles(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    return extraire_arcs_nulles(p_reseau).shape[0]
 
 
 def get_arcs_symmetrique(p_reseau):

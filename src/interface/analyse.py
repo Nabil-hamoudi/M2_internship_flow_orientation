@@ -3,8 +3,6 @@ from tkinter import filedialog, messagebox, ttk
 from src.wrapper_tools import ffi_wrapper
 from src.wrapper_tools import analyse_tools
 import numpy as np
-
-# --- IMPORT MATPLOTLIB ---
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
@@ -13,6 +11,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 SOURCEDEST = ("Ford-Fulkerson", "Edmonds-Karp")
 ALGO = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
 ORIEN = ("Aucune", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
+CAPACITE = ("Vitesse Max", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
+
 
 class AnalysisWindow(tk.Frame):
     def __init__(self, parent, app_manager):
@@ -29,7 +29,11 @@ class AnalysisWindow(tk.Frame):
             "Satisfaisabilité Cible (%)": "sat_tgt",
             "Erreur Absolue ponderee (WAPE %)": "wape",
             "Erreur ponderee (%)": "wp",
-            "Distance de Jaccard (%)": "jaccard"
+            "Distance de Jaccard (%)": "jaccard",
+            "Portion Arcs Flow Nul Réf (%)": "arc_nul_ref",
+            "Portion Arcs Flow Non Nul Réf (%)": "arc_non_nul_ref",
+            "Portion Arcs Flow Nul Cible (%)": "arc_nul_cible",
+            "Portion Arcs Flow Non Nul Cible (%)": "arc_non_nul_cible"
         }
 
         self.setup_ui()
@@ -101,6 +105,11 @@ class AnalysisWindow(tk.Frame):
         tk.Label(ref_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_algo = tk.StringVar(value="EPANET")
         ttk.Combobox(ref_f, textvariable=self.ref_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        
+        tk.Label(ref_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        self.ref_capa = tk.StringVar(value="Vitesse Max")
+        ttk.Combobox(ref_f, textvariable=self.ref_capa, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+
         tk.Label(ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_ori = tk.StringVar(value="Aucune")
         ttk.Combobox(ref_f, textvariable=self.ref_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
@@ -111,6 +120,11 @@ class AnalysisWindow(tk.Frame):
         tk.Label(tgt_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.tgt_algo = tk.StringVar(value="Edmonds-Karp")
         ttk.Combobox(tgt_f, textvariable=self.tgt_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        
+        tk.Label(tgt_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        self.tgt_capa = tk.StringVar(value="Vitesse Max")
+        ttk.Combobox(tgt_f, textvariable=self.tgt_capa, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        
         tk.Label(tgt_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.tgt_ori = tk.StringVar(value="Aucune")
         ttk.Combobox(tgt_f, textvariable=self.tgt_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
@@ -252,27 +266,48 @@ class AnalysisWindow(tk.Frame):
                 ffi_wrapper.compute_flow_edmonds_karp(reseau)
                 ffi_wrapper.delete_source_destination(reseau)
 
-    def compute_graph(self, algo, ori, m_src, m_dst, v_res, v_arc):
-        if algo == "EPANET":
+    def compute_orientation(self, reseau, choix_ori, p_src, p_dem):
+        match (choix_ori):
+            case "EPANET":
+                ffi_wrapper.fix_capacite_flow_oriente(reseau)
+            case "Aucune":
+                None
+            case _:
+                self.compute_algo(reseau, choix_ori, p_src, p_dem)
+                ffi_wrapper.fix_capacite_flow_oriente(reseau)
+
+    def compute_network(self, choix_algo, choix_ori, choix_capa, p_src, p_dem, v_res, v_arc):
+        if choix_algo == "EPANET":
             ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
         else:
             reseau = None
-            if ori == "EPANET":
-                ffi_wrapper.compute_epanet(self.projet)
-                reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
-            elif ori == "Aucune":
-                reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-            else:
-                reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                self.compute_algo(reseau, ori, m_src, m_dst)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau, v_res, v_arc)
+            match (choix_capa):
+                case "EPANET":
+                    ffi_wrapper.compute_epanet(self.projet)
+                    reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
+                case "Vitesse Max":
+                    reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                case _:
+                    if choix_ori == "EPANET":
+                        ffi_wrapper.compute_epanet(self.projet)
+                        reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                        ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                        self.compute_algo(reseau, choix_capa, p_src, p_dem)
+                        ffi_wrapper.fix_capacite_flow_calcule(reseau)
+                        ffi_wrapper.nullifier_flow(reseau)
+                        ffi_wrapper.reget_epanet_flow(self.projet, reseau)
+                    else:
+                        reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                        ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                        self.compute_algo(reseau, choix_capa, p_src, p_dem)
+                        ffi_wrapper.fix_capacite_flow_calcule(reseau)
+                        ffi_wrapper.nullifier_flow(reseau)
 
-            self.compute_algo(reseau, algo, m_src, m_dst)
-
+            self.compute_orientation(reseau, choix_ori, p_src, p_dem)
+            self.compute_algo(reseau, choix_algo, p_src, p_dem)
         return reseau
 
     def run_analysis(self):
@@ -282,8 +317,8 @@ class AnalysisWindow(tk.Frame):
 
         try:
             v_res, v_arc = float(self.v_res.get()), float(self.v_arc.get())
-            algo_ref, ori_ref = self.ref_algo.get(), self.ref_ori.get()
-            algo_tgt, ori_tgt = self.tgt_algo.get(), self.tgt_ori.get()
+            algo_ref, capa_ref, ori_ref = self.ref_algo.get(), self.ref_capa.get(), self.ref_ori.get()
+            algo_tgt, capa_tgt, ori_tgt = self.tgt_algo.get(), self.tgt_capa.get(), self.tgt_ori.get()
             
             src_min, src_max, src_n = map(float, [self.ranges["m_src"][i].get() for i in range(3)])
             epa_min, epa_max, epa_n = map(float, [self.ranges["m_dst_epa"][i].get() for i in range(3)])
@@ -301,11 +336,10 @@ class AnalysisWindow(tk.Frame):
 
             for m_epa in arr_epa:
                 ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
-                current_epa_mult = m_epa
                 if algo_ref == "EPANET":
-                    graph_ref = self.compute_graph(algo_ref, ori_ref, 1.0, 1.0, 1.0, 1.0)
+                    graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, 1.0, 1.0, 1.0, 1.0)
                 if algo_tgt == "EPANET":
-                    graph_tgt = self.compute_graph(algo_tgt, ori_ref, 1.0, 1.0, 1.0, 1.0)
+                    graph_tgt = self.compute_network(algo_tgt, ori_ref, capa_tgt, 1.0, 1.0, 1.0, 1.0)
 
                 for m_dst in arr_dst:
                     for m_src in arr_src:
@@ -316,25 +350,31 @@ class AnalysisWindow(tk.Frame):
                         if algo_ref != "EPANET":
                             if graph_ref is not None:
                                 ffi_wrapper.free_graph(graph_ref)
-                            graph_ref = self.compute_graph(algo_ref, ori_ref, m_src, m_dst, v_res, v_arc)
+                            graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, m_src, m_dst, v_res, v_arc)
                         if algo_tgt != "EPANET":
                             if graph_tgt is not None:
                                 ffi_wrapper.free_graph(graph_tgt)
-                            graph_tgt = self.compute_graph(algo_tgt, ori_tgt, m_src, m_dst, v_res, v_arc)
+                            graph_tgt = self.compute_network(algo_ref, ori_ref, capa_ref, m_src, m_dst, v_res, v_arc)
 
                         wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
                         wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
                         sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
                         sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
                         jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
+                        arcs_nul_ref = analyse_tools.get_n_arcs_non_nul(graph_ref) / analyse_tools.get_n_arcs_no(graph_ref) * 100
+                        arc_non_nul_ref = 100 - arcs_nul_ref
+                        arcs_nul_tgt = analyse_tools.get_n_arcs_non_nul(graph_tgt) / analyse_tools.get_n_arcs_no(graph_tgt) * 100
+                        arc_non_nul_tgt = 100 - arcs_nul_tgt
 
                         self.results.append({
                             "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
                             "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
-                            "jaccard": jaccard_d
+                            "jaccard": jaccard_d, "arc_nul_ref": arcs_nul_ref,
+                            "arc_non_nul_ref" : arc_non_nul_ref, "arc_nul_cible": arcs_nul_tgt,
+                            "arc_non_nul_cible": arc_non_nul_tgt
                         })
 
-                ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / current_epa_mult)
+                ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / m_epa)
 
             self.status_label.config(text=f"Analyse terminée ({total_iters} points).")
             self.update_plot()
@@ -366,11 +406,11 @@ class AnalysisWindow(tk.Frame):
             win.inputs["Mult. Demande"].delete(0, tk.END)
             win.inputs["Mult. Demande"].insert(0, str(res["m_dst_epa"]))
             
-            win.inputs["Vit. Rés (m/min)"].delete(0, tk.END)
-            win.inputs["Vit. Rés (m/min)"].insert(0, self.v_res.get())
+            win.inputs["Vit. Rés (m/s)"].delete(0, tk.END)
+            win.inputs["Vit. Rés (m/s)"].insert(0, self.v_res.get())
             
-            win.inputs["Vit. Arcs (m/min)"].delete(0, tk.END)
-            win.inputs["Vit. Arcs (m/min)"].insert(0, self.v_arc.get())
+            win.inputs["Vit. Arcs (m/s)"].delete(0, tk.END)
+            win.inputs["Vit. Arcs (m/s)"].insert(0, self.v_arc.get())
             
             win.inputs["Prop. Source"].delete(0, tk.END)
             win.inputs["Prop. Source"].insert(0, str(res["m_src"]))
