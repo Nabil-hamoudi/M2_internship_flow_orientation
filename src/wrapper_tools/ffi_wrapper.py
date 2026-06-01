@@ -39,6 +39,13 @@ def fix_capacite_flow_oriente(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.fix_capacite_flow_oriente(p_reseau)
 
+def get_epanet_demande(p_projet, p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.get_epanet_demande(p_projet, p_reseau)
+
+def get_epanet_fulldemande(p_projet, p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.get_epanet_fulldemande(p_projet, p_reseau)
 
 def ajout_source_destination(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
@@ -92,6 +99,7 @@ def compute_epanet(p_projet):
     lib.comput_flow(p_projet)
 
 def reget_epanet_flow(p_projet, p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
     lib.reget_epanet_flow(p_projet, p_reseau)
 
 def import_epanet_graph(p_projet):

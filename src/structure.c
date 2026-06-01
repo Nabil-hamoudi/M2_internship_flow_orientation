@@ -23,10 +23,16 @@ const char* get_nom_type_sommet(enum type_sommet type) {
 */
 const char* get_nom_type_arc(enum type_arcs type) {
 	switch (type) {
-		case TUYAU: return "TUYAU";
-		case POMPE: return "POMPE";
-		case VALVE: return "VALVE";
-		default:    return "INCONNU";
+		case TUYAU:	return "TUYAU";
+		case POMPE:	return "POMPE";
+		case VALVE_PRV:	return "VALVE_PRV";
+		case VALVE_PSV:	return "VALVE_PSV";
+		case VALVE_PBV:	return "VALVE_PRV";
+		case VALVE_FCV:	return "VALVE_FCV";
+		case VALVE_TCV:	return "VALVE_TCV";
+		case VALVE_GPV:	return "VALVE_GPV";
+		case VALVE_PCV:	return "VALVE_PCV";
+		default:	return "INCONNU";
 	}
 }
 
@@ -35,9 +41,9 @@ const char* get_nom_type_arc(enum type_arcs type) {
 */
 const char* get_nom_type_epanet_analyse(enum demand_model type) {
 	switch (type) {
-		case PDA: return "PDA";
-		case DDA: return "DDA";
-		default:    return "INCONNU";
+		case PDA:	return "PDA";
+		case DDA:	return "DDA";
+		default:	return "INCONNU";
 	}
 }
 
@@ -71,13 +77,14 @@ struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_ar
 *
 * Ici degree ajouter correspond a de la memoire supplementaire pour nottament pour l'ajout de la super source et super destination
 */
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant satisfaction, flotant demande, flotant coord_x, flotant coord_y) {
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant charge, flotant satisfaction, flotant demande, flotant coord_x, flotant coord_y) {
 	struct sommet S;
 	struct coordonnee C;
 	S.type = type_s;
 	S.elevation = elevation;
 	S.degree = degree;
 	S.pression = pression;
+	S.charge = charge;
 	S.demande = demande;
 	S.marque = 0;
 	S.satisfaction = satisfaction;
@@ -92,7 +99,7 @@ struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree
 /*
 * Assigne et initialise en memoire le type arcs correspondant a un arc du reseau
 */
-struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant roughness, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination) {
+struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant roughness, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination, int ouvert) {
 	struct arc A;
 	A.type = type_a;
 	A.diametre = diametre;
@@ -109,6 +116,7 @@ struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant long
 	A.marque = 0;
 	A.source = source;
 	A.destination = destination;
+	A.ouvert = ouvert;
 	return A;
 }
 
@@ -122,9 +130,10 @@ struct arc assignation_arc_oppose(struct arc* B) {
 	flotant roughness = B->roughness;
 	flotant capacite = B->capacite;
 	flotant flow = 0;
+	flotant ouvert = B->ouvert;
 	struct sommet *source = B->destination;
 	struct sommet *destination = B->source;
-	return assignation_arc(type_a, diametre, longueur, roughness, capacite, flow, source, destination);
+	return assignation_arc(type_a, diametre, longueur, roughness, capacite, flow, source, destination, ouvert);
 }
 
 /*

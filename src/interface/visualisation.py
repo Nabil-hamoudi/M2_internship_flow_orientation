@@ -13,6 +13,7 @@ ORIENTATIONS = ("Aucune", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
 CAPACITE = ("Vitesse Max", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
 COULEUR_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
 COULEUR_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)")
+DEMANDE = ("Uniforme", "EPANET")
 
 class InternalWindow(tk.Frame):
     def __init__(self, parent, app_manager, title="Réseau"):
@@ -75,6 +76,10 @@ class InternalWindow(tk.Frame):
         tk.Label(self.sidebar, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w")
         self.ori_var = tk.StringVar(value="Aucune")
         ttk.Combobox(self.sidebar, textvariable=self.ori_var, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, pady=(0, 10))
+
+        tk.Label(self.sidebar, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        self.dem_var = tk.StringVar(value="Uniforme")
+        ttk.Combobox(self.sidebar, textvariable=self.dem_var, values=DEMANDE, state="readonly").pack(fill=tk.X, pady=(0, 10))
 
         self.inputs = {}
         fields = [("Mult. Demande", "1.0"), ("Vit. Rés (m/s)", "3.0"),
@@ -166,7 +171,7 @@ class InternalWindow(tk.Frame):
 
     def close_window(self):
         if self.projet:
-            ffi_wrapper.fermeture_free_project(self.projet)
+            ffi_wrapper.free_project(self.projet)
         self.app_manager.remove_window(self)
         self.destroy()
 
@@ -207,10 +212,10 @@ class InternalWindow(tk.Frame):
 
     def update_dashboard(self, reseau):
         eff, p_req, e_pres, d_glob = analyse_tools.get_efficacite(reseau)*100, analyse_tools.get_pression_requise(reseau), analyse_tools.get_exposant_pression(reseau), analyse_tools.get_demande_global(reseau)
-        self.res_labels["eff"].config(text=f"Eff: {eff:.2f}%", fg="#27ae60" if eff > 99 else "#c0392b")
-        self.res_labels["pre"].config(text=f"P.Req: {p_req:.1f} m")
-        self.res_labels["exp"].config(text=f"Exp: {e_pres:.2f}")
-        self.res_labels["dem"].config(text=f"Dem: {d_glob:.1f} L/min")
+        self.res_labels["eff"].config(text=f"Eff: {eff:f}%", fg="#27ae60" if eff > 99 else "#c0392b")
+        self.res_labels["pre"].config(text=f"P.Req: {p_req:f} m")
+        self.res_labels["exp"].config(text=f"Exp: {e_pres:f}")
+        self.res_labels["dem"].config(text=f"Dem: {d_glob:f} L/min")
 
     def load_file(self, filepath):
         self.title_label.config(text=f"|  {filepath.split('/')[-1].split('\\')[-1]}")
@@ -242,6 +247,7 @@ class InternalWindow(tk.Frame):
     def compute_orientation(self, reseau, choix_ori, p_src, p_dem):
         match (choix_ori):
             case "EPANET":
+                ffi_wrapper.reget_epanet_flow(self.projet, reseau)
                 ffi_wrapper.fix_capacite_flow_oriente(reseau)
             case "Aucune":
                 None
@@ -249,39 +255,39 @@ class InternalWindow(tk.Frame):
                 self.compute_algo(reseau, choix_ori, p_src, p_dem)
                 ffi_wrapper.fix_capacite_flow_oriente(reseau)
 
-    def compute_network(self, choix_algo, choix_ori, choix_capa, p_src, p_dem, v_res, v_arc, mult_epa):
+    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa):
         ffi_wrapper.modif_multiplicateur(self.projet, mult_epa)
+        reseau = None
+        
         if choix_algo == "EPANET":
             ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
-        else:
-            reseau = None
+        else:                        
+            besoin_epanet = (choix_dem == "EPANET") or (choix_capa == "EPANET") or (choix_ori == "EPANET")
+            if besoin_epanet:
+                ffi_wrapper.compute_epanet(self.projet)
+            reseau = ffi_wrapper.import_epanet_graph(self.projet)
+
+            if choix_dem == "EPANET":
+                ffi_wrapper.get_epanet_demande(self.projet, reseau)
+
             match (choix_capa):
                 case "EPANET":
-                    ffi_wrapper.compute_epanet(self.projet)
-                    reseau = ffi_wrapper.import_epanet_graph(self.projet)
+                    ffi_wrapper.reget_epanet_flow(self.projet, reseau)
                     ffi_wrapper.fix_capacite_flow_calcule(reseau)
                 case "Vitesse Max":
-                    reseau = ffi_wrapper.import_epanet_graph(self.projet)
                     ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
                 case _:
-                    if choix_ori == "EPANET":
-                        ffi_wrapper.compute_epanet(self.projet)
-                        reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                        ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                        self.compute_algo(reseau, choix_capa, p_src, p_dem)
-                        ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                        ffi_wrapper.nullifier_flow(reseau)
-                        ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                    else:
-                        reseau = ffi_wrapper.import_epanet_graph(self.projet)
-                        ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                        self.compute_algo(reseau, choix_capa, p_src, p_dem)
-                        ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                        ffi_wrapper.nullifier_flow(reseau)
+                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                    self.compute_algo(reseau, choix_capa, p_src, p_dem)
+                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
+                    ffi_wrapper.nullifier_flow(reseau)
+                    
 
             self.compute_orientation(reseau, choix_ori, p_src, p_dem)
             self.compute_algo(reseau, choix_algo, p_src, p_dem)
+            if choix_dem == "EPANET":
+                ffi_wrapper.get_epanet_fulldemande(self.projet, reseau)
 
         ffi_wrapper.modif_multiplicateur(self.projet, 1 / mult_epa)
         return reseau
@@ -291,9 +297,9 @@ class InternalWindow(tk.Frame):
         if not self.projet:
             messagebox.showinfo("Info", "Veuillez charger un réseau d'abord.")
             return
-        
+
         seed_str = self.inputs["Seed (Optionnel)"].get().strip()
-        
+
         if seed_str:
             try:
                 seed_val = int(seed_str)
@@ -312,15 +318,26 @@ class InternalWindow(tk.Frame):
         try:
             v_res, v_arc = float(self.inputs["Vit. Rés (m/s)"].get()), float(self.inputs["Vit. Arcs (m/s)"].get())
             p_src, p_dem = float(self.inputs["Prop. Source"].get()), float(self.inputs["Prop. Demande"].get())
-            choix_algo, choix_ori, choix_capa = self.algo_var.get(), self.ori_var.get(), self.capa_var.get()
+            choix_algo, choix_ori, choix_capa, choix_dem = self.algo_var.get(), self.ori_var.get(), self.capa_var.get(), self.dem_var.get()
 
             self.status_label.config(text="Calcul en cours...")
             self.update_idletasks()
             
             mult = float(self.inputs["Mult. Demande"].get())
 
-            reseau = self.compute_network(choix_algo, choix_ori, choix_capa, p_src, p_dem, v_res, v_arc, mult)
+            seed_str = self.inputs["Seed (Optionnel)"].get().strip()
+            if seed_str:
+                try:
+                    seed_val = int(seed_str)
+                except ValueError:
+                    messagebox.showwarning("Attention", "La seed doit être un nombre entier.")
+                    return
+            else:
+                seed_val = None
 
+            ffi_wrapper.set_random_seed(seed_val)
+
+            reseau = self.compute_network(choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult)
             self.update_dashboard(reseau)
             self.extract_data(reseau)
             ffi_wrapper.free_graph(reseau)
@@ -366,20 +383,15 @@ class InternalWindow(tk.Frame):
 
             x1, y1 = analyse_tools.get_arc_source_position(reseau, idx_aller)
             x2, y2 = analyse_tools.get_arc_dest_position(reseau, idx_aller)
-            flow = 0.0
             velocity = 0.0
 
-            if idx_aller in arcs_actifs:
-                flow = analyse_tools.get_arc_flow(reseau, idx_aller)
-                velocity = analyse_tools.compute_velocity(reseau, idx_aller)
-            elif idx_retour in arcs_actifs:
+            if idx_retour in arcs_actifs:
                 x1, y1, x2, y2 = x2, y2, x1, y1
-                flow = analyse_tools.get_arc_flow(reseau, idx_retour)
-                velocity = analyse_tools.compute_velocity(reseau, idx_retour)
 
             self.edges.append({
                 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 
-                'flow': flow, 'velocity': velocity, 
+                'flow': analyse_tools.get_arc_non_oriente_flow(reseau, idx_aller, idx_retour),
+                'velocity': analyse_tools.get_arc_non_oriente_velocity(reseau, idx_aller, idx_retour),
                 'type': analyse_tools.get_arc_type(reseau, idx_aller),
                 'diametre': analyse_tools.get_arc_diametre(reseau, idx_aller),
                 'longueur': analyse_tools.get_arc_longueur(reseau, idx_aller),
@@ -740,10 +752,10 @@ class InternalWindow(tk.Frame):
         msg = f"--- Détails du Sommet ---\n\n"
         msg += f"ID ID_EPANET : {n['id']}\n"
         msg += f"Type de nœud : {ffi_wrapper.get_nom_type_sommet(n['type'])}\n"
-        msg += f"Élévation : {n['elevation']:.2f} m\n"
-        msg += f"Pression calculée : {n['pression']:.2f} m\n"
-        msg += f"Demande à la cible : {n['demande']:.2f} L/min\n"
-        msg += f"Demande satisfaite à la cible : {n['satisfaction']:.2f} %\n"
+        msg += f"Élévation : {n['elevation']:f} m\n"
+        msg += f"Pression calculée : {n['pression']:f} m\n"
+        msg += f"Demande à la cible : {n['demande']:f} L/min\n"
+        msg += f"Demande satisfaite à la cible : {n['satisfaction']:f} %\n"
         msg += f"Degré topologique : {n['degree']}"
         
         messagebox.showinfo(f"Sommet ID: {n['id']}", msg)
@@ -753,17 +765,17 @@ class InternalWindow(tk.Frame):
 
         msg = f"--- Conduites Symétriques Jumelles ---\n\n"
         msg += f"Type structurel : {ffi_wrapper.get_nom_type_arc(e['type'])}\n"
-        msg += f"Diamètre nominal : {e['diametre']:.1f} mm\n"
-        msg += f"Longueur physique : {e['longueur']:.1f} m\n\n"
+        msg += f"Diamètre nominal : {e['diametre']:f} mm\n"
+        msg += f"Longueur physique : {e['longueur']:f} m\n\n"
         msg += f" - ARC ALLER (Index C: {idx*2}) :\n"
-        msg += f"  • Débit (Flow) : {e['flow_aller']:.4f} L/min\n"
-        msg += f"  • Capacité Max : {e['cap_aller']:.2f} L/min\n\n"
+        msg += f"  • Débit (Flow) : {e['flow_aller']:f} L/min\n"
+        msg += f"  • Capacité Max : {e['cap_aller']:f} L/min\n\n"
         msg += f" - ARC RETOUR (Index C: {idx*2+1}) :\n"
-        msg += f"  • Débit (Flow) : {e['flow_retour']:.4f} L/min\n"
-        msg += f"  • Capacité Max : {e['cap_retour']:.2f} L/min\n\n"
+        msg += f"  • Débit (Flow) : {e['flow_retour']:f} L/min\n"
+        msg += f"  • Capacité Max : {e['cap_retour']:f} L/min\n\n"
         msg += f" - Métriques actives de rendu :\n"
-        msg += f"  • Débit dominant : {e['flow']:.4f} L/min\n"
+        msg += f"  • Débit dominant : {e['flow']:f} L/min\n"
         msg += f"  • Rugosité (Roughness) : {e['roughness']}\n"
-        msg += f"  • Vitesse calculée : {e['velocity']:.4f} m/s"
+        msg += f"  • Vitesse calculée : {e['velocity']:f} m/s"
         
         messagebox.showinfo(f"Double Conduite #{idx}", msg)

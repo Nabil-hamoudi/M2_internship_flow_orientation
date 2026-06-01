@@ -42,6 +42,12 @@ def get_arc_capacite(p_reseau, index):
 def get_arc_flow(p_reseau, index):
     return get_graph_pointer(p_reseau).arcs[index].flow
 
+def get_arc_non_oriente_flow(p_reseau, index_aller, index_retour):
+    return lib.get_flow_non_oriente(get_graph_pointer(p_reseau), index_aller, index_retour)
+
+def get_arc_non_oriente_velocity(p_reseau, index_aller, index_retour):
+    return lib.get_velocity_non_oriente(get_graph_pointer(p_reseau), index_aller, index_retour)
+
 def get_arc_source_type(p_reseau, index):
     return get_graph_pointer(p_reseau).arcs[index].source.type
 
@@ -241,14 +247,15 @@ def get_wape_flow(graph_ref, graph_sim):
     somme_erreurs = 0.0
     somme_flux_ref = 0.0
 
-    n = get_n_arcs(gsim)
+    n = get_n_arcs(gsim) // 2
 
     for i in range(n):
-        a1, a2 = graph_ref.arcs[i], graph_sim.arcs[i]
+        a1_flow = np.absolute(graph_ref.arcs[2*i].flow - graph_ref.arcs[2*i + 1].flow)
+        a2_flow = np.absolute(graph_sim.arcs[2*i].flow - graph_sim.arcs[2*i + 1].flow)
         
-        somme_erreurs += np.absolute(a1.flow - a2.flow)
+        somme_erreurs += np.absolute(a1_flow - a2_flow)
         
-        somme_flux_ref += np.absolute(a1.flow)
+        somme_flux_ref += a1_flow
 
     if somme_flux_ref == 0.0:
         return 0.0 
@@ -265,14 +272,15 @@ def get_wp_flow(graph_ref, graph_sim):
     somme_erreurs = 0.0
     somme_flux_ref = 0.0
 
-    n = get_n_arcs(gsim)
+    n = get_n_arcs(gsim) // 2
 
     for i in range(n):
-        a1, a2 = graph_ref.arcs[i], graph_sim.arcs[i]
+        a1_flow = np.absolute(graph_ref.arcs[2*i].flow - graph_ref.arcs[2*i + 1].flow )
+        a2_flow = np.absolute(graph_sim.arcs[2*i].flow  - graph_sim.arcs[2*i + 1].flow )
         
-        somme_erreurs += a1.flow - a2.flow
+        somme_erreurs += a1_flow - a2_flow
         
-        somme_flux_ref += a1.flow
+        somme_flux_ref += a1_flow
 
     if somme_flux_ref == 0.0:
         return 0.0 

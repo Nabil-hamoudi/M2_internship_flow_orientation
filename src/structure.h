@@ -20,7 +20,13 @@ enum type_sommet {
 enum type_arcs {
 	TUYAU,
 	POMPE,
-	VALVE
+	VALVE_PRV,
+	VALVE_PSV,
+	VALVE_PBV,
+	VALVE_FCV,
+	VALVE_TCV,
+	VALVE_GPV,
+	VALVE_PCV
 };
 
 enum demand_model {
@@ -39,6 +45,7 @@ struct sommet {
 	flotant elevation;
 	flotant demande;
 	flotant pression;
+	flotant charge;
 	flotant satisfaction;
 	struct coordonnee position;
 	int marque;
@@ -58,6 +65,7 @@ struct arc {
 	flotant capacite;
 	flotant flow;
 	int marque;
+	int ouvert;
 	struct sommet *source;
 	struct sommet *destination;
 };
@@ -85,9 +93,9 @@ const char* get_nom_type_arc(enum type_arcs type);
 
 struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_min, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp);
 
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant satisfaction, flotant demande, flotant coor_x, flotant coor_y);
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant charge, flotant satisfaction, flotant demande, flotant coor_x, flotant coor_y);
 
-struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant roughness, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination);
+struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant roughness, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination, int ouvert);
 
 struct arc assignation_arc_oppose(struct arc* B);
 

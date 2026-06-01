@@ -3,7 +3,6 @@
 #include "math.h"
 #include "float.h"
 #include "structure.h"
-#include "epanet_parser.h"
 
 struct file {
 	struct sommet* sommet;
@@ -90,6 +89,10 @@ flotant get_flow_non_oriente(struct graph* reseau, nbr index_aller, nbr index_re
 	return fabs(reseau->arcs[index_aller].flow - reseau->arcs[index_retour].flow);
 }
 
+flotant get_velocity_non_oriente(struct graph* reseau, nbr index_aller, nbr index_retour) {
+	return fabs(compute_velocity(reseau, index_aller) - compute_velocity(reseau, index_retour));
+}
+
 void fix_capacite_flow_calcule(struct graph* reseau) {
 	for (nbr i=0; i < reseau->nb_arcs ; i += 2) {
 		struct sommet* source = reseau->arcs[i].source;
@@ -98,8 +101,10 @@ void fix_capacite_flow_calcule(struct graph* reseau) {
 			flotant flow_abs = get_flow_non_oriente(reseau, i, i+1);
 			if (flow_abs > 0.0) {
 				reseau->arcs[i].capacite = flow_abs;
-			} else {
 				reseau->arcs[i+1].capacite = flow_abs;
+			} else {
+				reseau->arcs[i].capacite = 0.0;
+				reseau->arcs[i+1].capacite = 0.0;
 			}
 		}
 	}
@@ -118,6 +123,14 @@ void fix_capacite_flow_oriente(struct graph* reseau) {
 	}
 }
 
+void fermeture_arc_ferme(struct graph* reseau) {
+	for (int i=0; i < reseau->nb_arcs ; i++) {
+		if (!(reseau->arcs[i].ouvert)) {
+			reseau->arcs[i].capacite = 0.0;
+		}
+	}
+
+}
 
 void delete_source_destination(struct graph* reseau) {
 	struct sommet *source = reseau->sommet_source;
@@ -148,22 +161,22 @@ void ajout_source_destination(struct graph* reseau) {
 	for (int i=0; i < reseau->nb_sommet ; i++) {
 		if (reseau->sommets[i].demande > 0.0) {
 			degree_destination++;
-		} else if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].demande < 0.0) {
+		} else if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].demande < 0.0 || reseau->sommets[i].type == TANK) {
 			degree_source++;
 		}
 	}
 
 	reseau->nb_sommet += 2;
 
-	reseau->sommets[reseau->nb_sommet-2] = assignation_sommet(SOURCE, degree_source, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-	reseau->sommets[reseau->nb_sommet-1] = assignation_sommet(DESTINATION, degree_destination, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+	reseau->sommets[reseau->nb_sommet-2] = assignation_sommet(SOURCE, degree_source, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+	reseau->sommets[reseau->nb_sommet-1] = assignation_sommet(DESTINATION, degree_destination, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 	reseau->sommet_source = &reseau->sommets[reseau->nb_sommet-2];
 	reseau->sommet_destination = &reseau->sommets[reseau->nb_sommet-1];
 	nbr lien_source = 0, lien_destination = 0;
 	for (int i=0; i < reseau->nb_sommet-2 ; i++) {
-		if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].demande < 0.0) {
+		if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].type == TANK || reseau->sommets[i].demande < 0.0) {
 			reseau->nb_arcs += 2;
-			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, 0.0, reseau->sommet_source, &reseau->sommets[i]);
+			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, 0.0, reseau->sommet_source, &reseau->sommets[i], 1);
 			reseau->arcs[reseau->nb_arcs-1] = assignation_arc_oppose(&reseau->arcs[reseau->nb_arcs-2]);
 			reseau->sommet_source->arcs[lien_source] = assignation_arc_symmetrique(&reseau->arcs[reseau->nb_arcs-2], &reseau->arcs[reseau->nb_arcs-1], reseau->sommet_source);
 			lien_source++;
@@ -171,7 +184,7 @@ void ajout_source_destination(struct graph* reseau) {
 			reseau->sommets[i].arcs[reseau->sommets[i].degree-1] = assignation_arc_symmetrique(&reseau->arcs[reseau->nb_arcs-2], &reseau->arcs[reseau->nb_arcs-1], &reseau->sommets[i]);
 		} else if (reseau->sommets[i].demande > 0.0) {
 			reseau->nb_arcs += 2;
-			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, 0.0, &reseau->sommets[i], reseau->sommet_destination);
+			reseau->arcs[reseau->nb_arcs-2] = assignation_arc(TUYAU, 0.0, 0.0, 0.0, 0.0, 0.0, &reseau->sommets[i], reseau->sommet_destination, 1);
 			reseau->arcs[reseau->nb_arcs-1] = assignation_arc_oppose(&reseau->arcs[reseau->nb_arcs-2]);
 			reseau->sommet_destination->arcs[lien_destination] = assignation_arc_symmetrique(&reseau->arcs[reseau->nb_arcs-2], &reseau->arcs[reseau->nb_arcs-1], reseau->sommet_destination);
 			lien_destination++;
@@ -204,37 +217,96 @@ void nullifier_flow(struct graph* reseau) {
 }
 
 
-flotant parcours_ff(struct sommet *sommet, flotant flow) {
-	flotant flow_ajoutable, new_flot;
+flotant parcours_ff_iteratif(struct graph* reseau) {
 	flotant epsilon = 0.0;
-	if (sommet->type == DESTINATION) {return flow;};
-	for (int i=0; i < sommet->degree; i++) {
-		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
-		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {
-			struct sommet* new_sommet;
-			flow_ajoutable = fmin(flow, flow_ajoutable);
-			sommet->arcs[i].arc_sortant->destination->marque = 1;
-			new_sommet = sommet->arcs[i].arc_sortant->destination;
-			new_flot = parcours_ff(new_sommet, flow_ajoutable);
-			if (new_flot != -1.0) {
-				sommet->arcs[i].arc_sortant->flow += new_flot;
-				return new_flot;
-			}
-		}
-		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
-		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_entrant->source->marque) {
-			struct sommet* new_sommet;
-			flow_ajoutable = fmin(flow, flow_ajoutable);
-			sommet->arcs[i].arc_entrant->source->marque = 1;
-			new_sommet = sommet->arcs[i].arc_entrant->source;
-			new_flot = parcours_ff(new_sommet, flow_ajoutable);
-			if (new_flot != -1.0) {
-				sommet->arcs[i].arc_entrant->flow -= new_flot;
-				return new_flot;
-			}
+	int nb_s = reseau->nb_sommet;
+
+	struct sommet* pile[nb_s];
+	struct arc* parent_arc[nb_s];
+	int is_inverse[nb_s];
+	flotant path_flow[nb_s];
+
+	int top = 0;
+
+	struct sommet* source = reseau->sommet_source;
+	int source_idx = source - reseau->sommets;
+
+	pile[top++] = source;
+	path_flow[source_idx] = DBL_MAX;
+	source->marque = 1;
+
+	int dest_idx = -1;
+
+	while (top > 0) {
+		struct sommet* u = pile[--top];
+		int u_idx = u - reseau->sommets;
+
+		if (u->type == DESTINATION) {
+			dest_idx = u_idx;
+			break;
 		}
 
+		int indices[u->degree];
+		for (int i = 0; i < u->degree; i++) {
+			indices[i] = i;
+		}
+		for (int i = u->degree - 1; i > 0; i--) {
+			int j = rand() % (i + 1);
+			int temp = indices[i];
+			indices[i] = indices[j];
+			indices[j] = temp;
+		}
+
+		for (int k = 0; k < u->degree; k++) {
+			int i = indices[k];
+			flotant flow_ajoutable;
+
+			struct arc* arc_out = u->arcs[i].arc_sortant;
+			struct sommet* v_out = arc_out->destination;
+			flow_ajoutable = arc_out->capacite - arc_out->flow;
+
+			if (flow_ajoutable > epsilon && !v_out->marque) {
+				v_out->marque = 1;
+				int v_idx = v_out - reseau->sommets;
+				parent_arc[v_idx] = arc_out;
+				is_inverse[v_idx] = 0;
+				path_flow[v_idx] = fmin(path_flow[u_idx], flow_ajoutable);
+				pile[top++] = v_out;
+			}
+
+			struct arc* arc_in = u->arcs[i].arc_entrant;
+			struct sommet* v_in = arc_in->source;
+			flow_ajoutable = arc_in->flow;
+
+			if (flow_ajoutable > epsilon && !v_in->marque) {
+				v_in->marque = 1;
+				int v_idx = v_in - reseau->sommets;
+				parent_arc[v_idx] = arc_in;
+				is_inverse[v_idx] = 1; // Indique qu'on "remonte" le courant
+				path_flow[v_idx] = fmin(path_flow[u_idx], flow_ajoutable);
+				pile[top++] = v_in;
+			}
+		}
 	}
+
+	if (dest_idx != -1) {
+		flotant new_flot = path_flow[dest_idx];
+		int curr_idx = dest_idx;
+
+		while (curr_idx != source_idx) {
+			struct arc* arc = parent_arc[curr_idx];
+			
+			if (is_inverse[curr_idx]) {
+				arc->flow -= new_flot;
+				curr_idx = arc->destination - reseau->sommets; // Le noeud précédent
+			} else {
+				arc->flow += new_flot;
+				curr_idx = arc->source - reseau->sommets; // Le noeud précédent
+			}
+		}
+		return new_flot;
+	}
+
 	return -1.0;
 }
 
@@ -253,13 +325,13 @@ void marque_zero_arcs(struct graph* reseau) {
 
 void compute_flow_ford_fukerson(struct graph* reseau) {
 	marque_zero_sommets(reseau);
-	struct sommet* sommet = reseau->sommet_source;
 	flotant result = 1.0;
+	
 	while (result != -1.0) {
 		marque_zero_sommets(reseau);
-		sommet->marque = 1;
-		result = parcours_ff(sommet, DBL_MAX);
+		result = parcours_ff_iteratif(reseau); 
 	};
+	
 	compute_satisfaction_rate(reseau);
 }
 
@@ -270,7 +342,21 @@ flotant parcours_ek(struct file* file, struct file** end_file) {
 	flotant flow = file->flow_ajoutable;
 	if (sommet->type == DESTINATION) {return flow;}
 
-	for (int i=0; i < sommet->degree; i++) {
+	int indices[sommet->degree];
+	for (int i = 0; i < sommet->degree; i++) {
+		indices[i] = i;
+	}
+
+	for (int i = sommet->degree - 1; i > 0; i--) {
+		int j = rand() % (i + 1);
+		int temp = indices[i];
+		indices[i] = indices[j];
+		indices[j] = temp;
+	}
+
+	for (int k = 0; k < sommet->degree; k++) {
+		int i = indices[k];
+
 		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
 		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {
 			flow_ajoutable = fmin(flow, flow_ajoutable);

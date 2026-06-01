@@ -28,19 +28,19 @@ enum type_arcs parser_type_arc(int type_epanet) {
 		case EN_CVPIPE:
 			return TUYAU;
 		case EN_PRV:
-			return VALVE;
+			return VALVE_PRV;
 		case EN_PSV:
-			return VALVE;
+			return VALVE_PSV;
 		case EN_PBV:
-			return VALVE;
+			return VALVE_PBV;
 		case EN_FCV:
-			return VALVE;
+			return VALVE_FCV;
 		case EN_TCV:
-			return VALVE;
+			return VALVE_TCV;
 		case EN_GPV:
-			return VALVE;
+			return VALVE_GPV;
 		case EN_PCV:
-			return VALVE;
+			return VALVE_PCV;
 		default:
 			return TUYAU;
 	}
@@ -71,24 +71,24 @@ EN_Project init_inp_file(char* input, char* log, char* binairy) {
 }
 
 long get_time(EN_Project* ph) {
-	long duree_totale, heure_debut;
-	ENgettimeparam(EN_DURATION, &duree_totale); 
-	ENgettimeparam(EN_STARTTIME, &heure_debut); 
-
-	return heure_debut + duree_totale;
+	long duree_totale;
+	EN_gettimeparam(*ph, EN_DURATION, &duree_totale); 
+	return duree_totale;
 }
 
-int get_time_pattern(EN_Project* ph, int id_node, int patern_id, float temp) {
+int get_time_pattern(EN_Project* ph, int id_node, int patern_id, long t_ecoule) {
 	long patStep, patStart;
 	int patLength;
 
 	EN_gettimeparam(*ph, EN_PATTERNSTEP, &patStep);
-	EN_gettimeparam(*ph, EN_PATTERNSTART, &patStart);
+	EN_gettimeparam(*ph, EN_PATTERNSTART, &patStart); // Contient déjà l'offset de STARTTIME
 	EN_getpatternlen(*ph, patern_id, &patLength);
 
-	long index_periode = (temp + patStart) / patStep; 
+    if (patLength == 0 || patStep == 0) return 1; // Sécurité
 
-	return (index_periode % patLength) + 1;
+	long index_periode = (t_ecoule + patStart) / patStep; 
+
+	return (int)((index_periode % patLength) + 1);
 }
 
 /*
@@ -121,7 +121,7 @@ void randomise_demande(EN_Project* ph) {
 	}
 }
 
-void modif_multiplicateur(EN_Project* ph, float multiplicateur) {
+void modif_multiplicateur(EN_Project* ph, double multiplicateur) {
 	double mult;
 	EN_getoption(*ph, EN_DEMANDMULT, &mult);
 	EN_setoption(*ph, EN_DEMANDMULT, mult * multiplicateur);
@@ -136,16 +136,116 @@ void fermeture_free_project(EN_Project* ph) {
 	EN_deleteproject(*ph);
 }
 
+void nullifier_demande(struct graph* reseau) {
+	nbr nb_nodes = reseau->nb_sommet;
+	for (nbr i = 0; i < nb_nodes; i++) {
+		reseau->sommets[i].demande = 0.0;
+	}
+}
+
+void get_epanet_fulldemande(EN_Project* ph, struct graph* reseau) {
+	nbr nb_nodes;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+
+	double full_demande = 0.0, full_delivered = 0.0;
+	double demande, delivered;
+
+	double demande_multiplier = 1.0;
+	EN_getoption(*ph, EN_DEMANDMULT, &demande_multiplier);
+	long t_fin = get_time(ph);
+
+	for (nbr i = 1; i <= nb_nodes; i++) {
+		int num_demands = 0;
+		EN_getnumdemands(*ph, i, &num_demands);
+		
+		demande = 0.0;
+		for (int cat = 1; cat <= num_demands; cat++) {
+			double base_demand = 0.0;
+			int pattern_id = 0;
+			double pattern_multiplier = 1.0;
+
+			EN_getbasedemand(*ph, i, cat, &base_demand);
+			EN_getdemandpattern(*ph, i, cat, &pattern_id);
+
+			if (pattern_id > 0) {
+				int pattern_stamp = get_time_pattern(ph, i, pattern_id, t_fin);
+				EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &pattern_multiplier);
+			}
+
+			demande += base_demand * demande_multiplier * pattern_multiplier;
+		}
+
+		if (demande > 0.0) {
+			delivered = reseau->sommets[i-1].demande * reseau->sommets[i-1].satisfaction;
+			
+			full_delivered += delivered;
+			full_demande += demande;
+
+			reseau->sommets[i-1].satisfaction = delivered / demande;
+			reseau->sommets[i-1].demande = demande;
+		} else {
+			reseau->sommets[i-1].satisfaction = 1.0;
+			reseau->sommets[i-1].demande = 0.0;
+		}
+	}
+
+	if (full_demande > 0.0) {	
+		reseau->demande_global = full_demande;
+		reseau->satifaisabilite = full_delivered / full_demande;
+	} else {
+		reseau->demande_global = 0.0;
+		reseau->satifaisabilite = 1.0;
+	}
+}
+
+void get_epanet_demande(EN_Project* ph, struct graph* reseau) {
+	nullifier_demande(reseau);
+	nbr nb_nodes;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+
+	double delivered;
+	for (nbr i = 1; i <= nb_nodes; i++) {
+		EN_getnodevalue(*ph, i, EN_DEMANDFLOW, &delivered);
+
+		if (delivered > 0.0) {
+			reseau->sommets[i-1].demande = delivered;
+		}
+	}
+}
+
 void compute_satisfaction_rate_epanet(EN_Project* ph, struct graph* reseau) {
 	nbr nb_nodes;
 	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
 
 	flotant total_demand = 0.0;
 	flotant total_delivered = 0.0;
-
 	double demand, delivered;
+
+	double demande_multiplier = 1.0;
+	EN_getoption(*ph, EN_DEMANDMULT, &demande_multiplier);
+	long t_fin = get_time(ph);
+
 	for (nbr i = 1; i <= nb_nodes; i++) {
-		EN_getnodevalue(*ph, i, EN_FULLDEMAND, &demand);
+		int num_demands = 0;
+		EN_getnumdemands(*ph, i, &num_demands);
+		demand = 0.0; 
+
+		for (int cat = 1; cat <= num_demands; cat++) {
+			double base_demand = 0.0;
+			int pattern_id = 0;
+			double pattern_multiplier = 1.0;
+
+			EN_getbasedemand(*ph, i, cat, &base_demand);
+			EN_getdemandpattern(*ph, i, cat, &pattern_id);
+
+			if (pattern_id > 0) {
+				int pattern_stamp = get_time_pattern(ph, i, pattern_id, t_fin);
+				EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &pattern_multiplier);
+			}
+
+			demand += base_demand * demande_multiplier * pattern_multiplier;
+		}
+
 		EN_getnodevalue(*ph, i, EN_DEMANDFLOW, &delivered);
 
 		if (demand > 0.0) {
@@ -154,7 +254,6 @@ void compute_satisfaction_rate_epanet(EN_Project* ph, struct graph* reseau) {
 			total_delivered += delivered;
 		} else {
 			reseau->sommets[i-1].satisfaction = 1.0;
-			
 		}
 	}
 
@@ -169,7 +268,14 @@ void set_random_seed(unsigned int seed) {
 	srand(seed);
 }
 
+void nullifier_flow_epa(struct graph* reseau) {
+	for (int i=0; i < reseau->nb_arcs; i++) {
+		reseau->arcs[i].flow = 0.0;
+	};
+}
+
 void reget_epanet_flow(EN_Project* ph, struct graph* reseau) {
+	nullifier_flow_epa(reseau);
 	double flow;
 	int noeud1, noeud2;
 	for (nbr i=0, j=1; j <= reseau->nb_arcs / 2; j++, i+=2) {
@@ -201,18 +307,27 @@ struct graph chargement_graph(EN_Project* ph) {
 	EN_getcount(*ph, EN_NODECOUNT, &nb_sommets);
 	EN_getcount(*ph, EN_LINKCOUNT, &nb_arcs);
 
-	nbr degree_supp = 0;
-	double demande_temp;
+nbr degree_supp = 0;
 	int temp_type;
 	for (int i=1; i <= nb_sommets ; i++) {
-		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande_temp);
 		EN_getnodetype(*ph, i, &temp_type);
-		if (demande_temp != 0.0 || temp_type == EN_RESERVOIR) {
+		
+		int num_demands = 0;
+		EN_getnumdemands(*ph, i, &num_demands);
+		double total_base_demand = 0.0;
+		
+		for (int cat = 1; cat <= num_demands; cat++) {
+			double base_demand = 0.0;
+			EN_getbasedemand(*ph, i, cat, &base_demand);
+			total_base_demand += base_demand;
+		}
+
+		if (total_base_demand != 0.0 || temp_type == EN_RESERVOIR || temp_type == EN_TANK) {
 			degree_supp++;
 		};
 	}
 
-	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 1.0, demande_multiplier, 1.0, get_time(ph));
+	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 0.0, demande_multiplier, 1.0, get_time(ph));
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -221,34 +336,53 @@ struct graph chargement_graph(EN_Project* ph) {
 		degrees[noeud2-1] += 1;
 	}
 
-	for (int i = 1 ; i <= nb_sommets ; i++) {
-		int type_node, pattern_id, pattern_stamp;
-		double elevation, demande, pression, x, y, multiplier = 1.0;
+	for (int i = 1; i <= nb_sommets ; i++) {
+		int type_node, pattern_stamp;
+		double elevation, demande, pression, x, y, charge;
 		
 		EN_getnodetype(*ph, i, &type_node);
 		type_node = parser_type_sommet(type_node);
 		EN_getnodevalue(*ph, i, EN_PRESSURE, &pression);
 		EN_getnodevalue(*ph, i, EN_ELEVATION, &elevation);
-		EN_getdemandpattern(*ph, i, 1, &pattern_id);
+		charge = elevation;
 		EN_getcoord(*ph, i, &x, &y);
-		if (pattern_id > 0.0) {
-			pattern_stamp = get_time_pattern(ph, i, pattern_id, G.temp);
-			EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &multiplier);
+
+		int num_demands = 0;
+		EN_getnumdemands(*ph, i, &num_demands);
+		demande = 0.0; 
+
+		for (int cat = 1; cat <= num_demands; cat++) {
+			double base_demand = 0.0;
+			int cat_pattern_id = 0;
+			double pattern_multiplier = 1.0;
+
+			EN_getbasedemand(*ph, i, cat, &base_demand);
+			EN_getdemandpattern(*ph, i, cat, &cat_pattern_id);
+
+			if (cat_pattern_id > 0) {
+				pattern_stamp = get_time_pattern(ph, i, cat_pattern_id, G.temp);
+				EN_getpatternvalue(*ph, cat_pattern_id, pattern_stamp, &pattern_multiplier);
+			}
+
+			demande += base_demand * G.demande_multiplier * pattern_multiplier;
 		}
-		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demande);
-		if (demande == 0 && type_node != RESERVOIR) {
-			G.demande_global += demande * G.demande_multiplier * multiplier;
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, 0.0, demande * G.demande_multiplier * multiplier, x, y);
+
+		if (demande == 0.0 && type_node != RESERVOIR && type_node != TANK) {
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, charge, 0.0, 0.0, x, y);
 		} else {
-			G.demande_global += demande * G.demande_multiplier * multiplier;
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, 0.0, demande * G.demande_multiplier * multiplier, x, y);
+			if (demande < 0.0 || type_node == RESERVOIR || type_node == TANK) {
+				G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, charge, 0.0, demande, x, y);
+			} else {
+				G.demande_global += demande;
+				G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, charge, 0.0, demande, x, y);
+			}
 		}
 		degrees[i-1] = 0;
 	}
 
 	for (int j = 1, i = 0 ; j <= nb_arcs ; j++, i += 2) {
-		int noeud1, noeud2, type_epa;
-		double diametre, longueur, flow, roughness;
+		int noeud1, noeud2, type_epa, ouvert;
+		double diametre, longueur, flow, roughness, status;
 		EN_getlinknodes(*ph, j, &noeud1, &noeud2);
 		EN_getlinktype(*ph, j, &type_epa);
 		type_epa = parser_type_arc(type_epa);
@@ -256,7 +390,13 @@ struct graph chargement_graph(EN_Project* ph) {
 		EN_getlinkvalue(*ph, j, EN_LENGTH, &longueur);
 		EN_getlinkvalue(*ph, j, EN_ROUGHNESS, &roughness);
 		EN_getlinkvalue(*ph, j, EN_FLOW, &flow);
-		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, roughness, 0.0, flow, &G.sommets[noeud1-1], &G.sommets[noeud2-1]);
+		EN_getlinkvalue(*ph, j, EN_INITSTATUS, &status);
+		if (status == EN_OPEN) {
+			ouvert = 1;
+		} else {
+			ouvert = 0;
+		}
+		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, roughness, 0.0, flow, &G.sommets[noeud1-1], &G.sommets[noeud2-1], ouvert);
 		G.arcs[i+1] = assignation_arc_oppose(&G.arcs[i]);
 		G.sommets[noeud1-1].arcs[degrees[noeud1-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud1-1]);
 		G.sommets[noeud2-1].arcs[degrees[noeud2-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud2-1]);
