@@ -5,9 +5,15 @@
 
 void print_graph_details(struct graph *G, flotant v_res, flotant v_arc);
 
+flotant get_flow_non_oriente(struct graph* reseau, nbr index_aller, nbr index_retour);
+
+flotant get_velocity_non_oriente(struct graph* reseau, nbr index_aller, nbr index_retour);
+
 void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
 
-void fix_capacite_flow_oriente(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs);
+void fix_capacite_flow_calcule(struct graph* reseau);
+
+void fix_capacite_flow_oriente(struct graph* reseau);
 
 void delete_source_destination(struct graph* reseau);
 

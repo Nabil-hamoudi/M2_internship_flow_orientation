@@ -31,11 +31,21 @@ def fix_capacite_flow(p_reseau, vitesse_reservoir, vitesse_arcs):
     p_reseau = get_graph_pointer(p_reseau)
     lib.fix_capacite_flow(p_reseau, vitesse_reservoir, vitesse_arcs)
 
-
-def fix_capacite_flow_oriente(p_reseau, vitesse_reservoir, vitesse_arcs):
+def fix_capacite_flow_calcule(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
-    lib.fix_capacite_flow_oriente(p_reseau, vitesse_reservoir, vitesse_arcs)
+    lib.fix_capacite_flow_calcule(p_reseau)
 
+def fix_capacite_flow_oriente(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.fix_capacite_flow_oriente(p_reseau)
+
+def get_epanet_demande(p_projet, p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.get_epanet_demande(p_projet, p_reseau)
+
+def get_epanet_fulldemande(p_projet, p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.get_epanet_fulldemande(p_projet, p_reseau)
 
 def ajout_source_destination(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
@@ -88,16 +98,26 @@ def set_random_seed(seed=None):
 def compute_epanet(p_projet):
     lib.comput_flow(p_projet)
 
+def reget_epanet_flow(p_projet, p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.reget_epanet_flow(p_projet, p_reseau)
 
 def import_epanet_graph(p_projet):
     return lib.chargement_graph(p_projet)
 
+def get_nom_type_arc(type_enum):
+    return ffi.string(lib.get_nom_type_arc(type_enum)).decode('utf-8') 
+
+def get_nom_type_sommet(type_enum):
+    return ffi.string(lib.get_nom_type_sommet(type_enum)).decode('utf-8')
 
 def free_graph(p_reseau):
     if p_reseau is not None:
         p_reseau = get_graph_pointer(p_reseau)
         lib.free_graph(p_reseau)
 
+def free_project(p_projet):
+    lib.fermeture_free_project(p_projet)
 
 def compute_satisfaction_rate(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)

@@ -64,7 +64,8 @@ int analyse_comparative_FF_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
 	export_flow_matrix(&reseau_epanet, fichier_output_epa);
-	fix_capacite_flow_oriente(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
+	fix_capacite_flow(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
+	fix_capacite_flow_oriente(&reseau_epanet);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
 	ajout_capacite_source(&reseau_epanet, proportion_source);
@@ -140,7 +141,8 @@ int analyse_comparative_EK_EPA_OR(char *fichier_inp, char *fichier_output_epa, c
 	if (affichage) print_graph_details(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
 
 	export_flow_matrix(&reseau_epanet, fichier_output_epa);
-	fix_capacite_flow_oriente(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
+	fix_capacite_flow(&reseau_epanet, vitesse_reservoir, vitesse_arcs);
+	fix_capacite_flow_oriente(&reseau_epanet);
 	ajout_source_destination(&reseau_epanet);
 	ajout_capacite_demande(&reseau_epanet, proportion_demande);
 	ajout_capacite_source(&reseau_epanet, proportion_source);
