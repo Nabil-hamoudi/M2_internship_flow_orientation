@@ -20,6 +20,7 @@ class InternalWindow(tk.Frame):
         super().__init__(parent, bg="white", bd=2, relief="groove")
         self.app_manager = app_manager
         self.projet = None
+        self.current_filepath = None
         self.nodes, self.edges = [], []
         self.scale = 1.0
         self.pan_x = self.pan_y = 0.0
@@ -110,7 +111,8 @@ class InternalWindow(tk.Frame):
             "Segoe UI", 9, "bold"), command=self.trigger_run).pack(fill=tk.X, pady=(10, 5))
         tk.Button(self.sidebar, text="Recentrer la vue", command=self.reset_view).pack(fill=tk.X)
 
-        tk.Button(self.sidebar, text="Randomiser Demandes", bg="#f39c12", fg="black", font=("Segoe UI", 8, "bold"), command=self.randomise_demandes).pack(fill=tk.X, pady=(5, 0))
+        self.randomise_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(self.sidebar, text="Randomiser Demandes", variable=self.randomise_var, bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
 
         res_frame = tk.LabelFrame(self.sidebar, text="Résultats", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         res_frame.pack(fill=tk.X, pady=10)
@@ -218,6 +220,7 @@ class InternalWindow(tk.Frame):
         self.res_labels["dem"].config(text=f"Dem: {d_glob:f} L/min")
 
     def load_file(self, filepath):
+        self.current_filepath = filepath
         self.title_label.config(text=f"|  {filepath.split('/')[-1].split('\\')[-1]}")
         self.projet = ffi_wrapper.create_epanet_project(filepath)
         reseau = ffi_wrapper.import_epanet_graph(self.projet)
@@ -282,7 +285,6 @@ class InternalWindow(tk.Frame):
                     self.compute_algo(reseau, choix_capa, p_src, p_dem)
                     ffi_wrapper.fix_capacite_flow_calcule(reseau)
                     ffi_wrapper.nullifier_flow(reseau)
-                    
 
             self.compute_orientation(reseau, choix_ori, p_src, p_dem)
             self.compute_algo(reseau, choix_algo, p_src, p_dem)
@@ -291,28 +293,6 @@ class InternalWindow(tk.Frame):
 
         ffi_wrapper.modif_multiplicateur(self.projet, 1 / mult_epa)
         return reseau
-
-
-    def randomise_demandes(self):
-        if not self.projet:
-            messagebox.showinfo("Info", "Veuillez charger un réseau d'abord.")
-            return
-
-        seed_str = self.inputs["Seed (Optionnel)"].get().strip()
-
-        if seed_str:
-            try:
-                seed_val = int(seed_str)
-            except ValueError:
-                messagebox.showwarning("Attention", "La seed doit être un nombre entier.")
-                return
-        else:
-            seed_val = None
-
-        ffi_wrapper.set_random_seed(seed_val)
-        ffi_wrapper.randomise_demande(self.projet)
-
-        self.status_label.config(text=f"Demandes randomisées (Seed: {seed_val}).")
 
     def trigger_run(self):
         try:
@@ -335,7 +315,14 @@ class InternalWindow(tk.Frame):
             else:
                 seed_val = None
 
+            if hasattr(self, 'current_filepath') and self.current_filepath:
+                if self.projet:
+                    ffi_wrapper.free_project(self.projet)
+                self.projet = ffi_wrapper.create_epanet_project(self.current_filepath)
+
             ffi_wrapper.set_random_seed(seed_val)
+            if self.randomise_var.get():
+                ffi_wrapper.randomise_demande(self.projet)
 
             reseau = self.compute_network(choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult)
             self.update_dashboard(reseau)
@@ -674,7 +661,6 @@ class InternalWindow(tk.Frame):
                 b = int(b1 + (b2 - b1) * local_ratio)
                 canvas.create_line(0, y, grad_width, y, fill=f'#{r:02x}{g:02x}{b:02x}')
 
-        # --- 1. Légende des Sommets (EN HAUT) ---
         if mode_couleur_node != "Aucune":
             if mode_couleur_node in ("Élévation", "Pression"):
                 unit = "(m)"
@@ -691,15 +677,13 @@ class InternalWindow(tk.Frame):
             
             draw_gradient_strip(grad_canvas, self.colors_node)
 
-            # Placements des 5 valeurs aux limites correspondantes
             for i in range(5):
-                val = boundaries_node[4 - i] # 4=Max (top), 0=Min (bottom)
+                val = boundaries_node[4 - i]
                 y_pos = y_offset + (grad_height * (i / 4.0))
                 tk.Label(self.legend_frame, text=f"{val:.2f}", bg="white", fg="black", font=lbl_font).place(x=center_x - 12, y=y_pos, anchor="e")
             
             current_y = y_offset + grad_height + 20
 
-        # --- 2. Légende des Arcs (EN BAS) ---
         if mode_couleur_edge != "Aucune":
             unit = "(L/min)" if mode_couleur_edge == "Flow (Débit)" else ("" if mode_couleur_edge == "Roughness (Rugosité)" else "(m/s)")
             label_text = f"Arcs:\n{mode_couleur_edge.split(' (')[0]}\n{unit}"
@@ -711,9 +695,8 @@ class InternalWindow(tk.Frame):
             
             draw_gradient_strip(grad_canvas, self.colors_arc)
 
-            # Placements des 5 valeurs aux limites correspondantes
             for i in range(5):
-                val = boundaries_arc[4 - i] # 4=Max (top), 0=Min (bottom)
+                val = boundaries_arc[4 - i]
                 y_pos = y_offset + (grad_height * (i / 4.0))
                 tk.Label(self.legend_frame, text=f"{val:.2f}", bg="white", fg="black", font=lbl_font).place(x=center_x - 12, y=y_pos, anchor="e")
 

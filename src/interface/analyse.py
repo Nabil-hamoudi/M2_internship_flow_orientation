@@ -3,6 +3,7 @@ from tkinter import filedialog, messagebox, ttk
 from src.wrapper_tools import ffi_wrapper
 from src.wrapper_tools import analyse_tools
 import numpy as np
+import random
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
@@ -20,6 +21,7 @@ class AnalysisWindow(tk.Frame):
         super().__init__(parent, bg="white", bd=2, relief="groove")
         self.app_manager = app_manager
         self.projet = None
+        self.loaded_files = []
         self.results = []
         
         self.keys_map = {
@@ -54,7 +56,6 @@ class AnalysisWindow(tk.Frame):
         main_content = tk.Frame(self, bg="white")
         main_content.pack(fill=tk.BOTH, expand=True)
 
-        # 1. PANNEAU LATÉRAL AVEC SCROLLBAR
         sidebar_container = tk.Frame(main_content, width=280, bg="#ecf0f1", relief="solid", bd=1)
         sidebar_container.pack(side=tk.LEFT, fill=tk.Y)
         sidebar_container.pack_propagate(False)
@@ -70,16 +71,9 @@ class AnalysisWindow(tk.Frame):
         canvas_side.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        tk.Button(self.sidebar, text="Charger Réseau (.inp)", command=self.load_file, bg="white").pack(fill=tk.X, pady=(0, 10))
-
-        seed_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
-        seed_frame.pack(fill=tk.X, pady=(0, 5))
-        tk.Label(seed_frame, text="Seed (Opt.):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.seed_entry = tk.Entry(seed_frame, width=10)
-        self.seed_entry.pack(side=tk.LEFT, padx=2)
-
-        tk.Button(self.sidebar, text="Randomiser Demandes", bg="#f39c12", fg="black", 
-                  font=("Segoe UI", 8, "bold"), command=self.randomise_demandes).pack(fill=tk.X, pady=(0, 10))
+        tk.Button(self.sidebar, text="Ajouter Réseau(x) (.inp)", command=self.load_files, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold")).pack(fill=tk.X, pady=(0, 5))
+        self.files_listbox = tk.Listbox(self.sidebar, height=3, bg="white", font=("Segoe UI", 7))
+        self.files_listbox.pack(fill=tk.X, pady=(0, 10))
 
         tk.Label(self.sidebar, text="Balayage (Grid Search)", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
         grid = tk.Frame(self.sidebar, bg="#ecf0f1")
@@ -99,6 +93,13 @@ class AnalysisWindow(tk.Frame):
             ent_max.grid(row=i+1, column=2, padx=2)
             ent_n.grid(row=i+1, column=3, padx=2)
             self.ranges[key] = (ent_min, ent_max, ent_n)
+
+        rand_f = tk.Frame(self.sidebar, bg="#ecf0f1")
+        rand_f.pack(fill=tk.X, pady=(5, 5))
+        tk.Label(rand_f, text="Nb Randomisations (0=Désactivé):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        self.nb_rand_entry = tk.Entry(rand_f, width=5)
+        self.nb_rand_entry.insert(0, "0")
+        self.nb_rand_entry.pack(side=tk.RIGHT, padx=5)
 
         # --- MODÈLE RÉFÉRENCE ---
         ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
@@ -166,7 +167,22 @@ class AnalysisWindow(tk.Frame):
         cb_c = ttk.Combobox(self.sidebar, textvariable=self.c_var, values=["Aucune"] + plot_opts, state="readonly")
         cb_c.pack(fill=tk.X); cb_c.bind("<<ComboboxSelected>>", self.update_plot)
 
-        # 2. ZONE DE DESSIN MATPLOTLIB
+        # --- LIGNES STATISTIQUES ---
+        tk.Label(self.sidebar, text="Statistiques", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
+        
+        stat_f = tk.Frame(self.sidebar, bg="#ecf0f1")
+        stat_f.pack(fill=tk.X, pady=2)
+        
+        self.show_mean_y_var = tk.BooleanVar(value=False)
+        self.show_median_y_var = tk.BooleanVar(value=False)
+        self.show_mean_x_var = tk.BooleanVar(value=False)
+        self.show_median_x_var = tk.BooleanVar(value=False)
+        
+        tk.Checkbutton(stat_f, text="Moy. Y (Horiz.)", variable=self.show_mean_y_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot).grid(row=0, column=0, sticky="w")
+        tk.Checkbutton(stat_f, text="Méd. Y (Horiz.)", variable=self.show_median_y_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot).grid(row=0, column=1, sticky="w")
+        tk.Checkbutton(stat_f, text="Moy. X (Vert.)", variable=self.show_mean_x_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot).grid(row=1, column=0, sticky="w")
+        tk.Checkbutton(stat_f, text="Méd. X (Vert.)", variable=self.show_median_x_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot).grid(row=1, column=1, sticky="w")
+
         self.plot_frame = tk.Frame(main_content, bg="white")
         self.plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
@@ -182,8 +198,8 @@ class AnalysisWindow(tk.Frame):
         self.toolbar.update()
 
         self.canvas.mpl_connect('pick_event', self.on_pick)
+        self.scatters = []
 
-        # Barre d'état
         self.status_bar = tk.Frame(self, bg="#bdc3c7", height=20)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.status_label = tk.Label(self.status_bar, text="Prêt", bg="#bdc3c7", font=("Segoe UI", 8))
@@ -191,6 +207,7 @@ class AnalysisWindow(tk.Frame):
 
         self.grip = tk.Label(self.status_bar, text="◢", bg="#bdc3c7", fg="#7f8c8d", cursor="bottom_right_corner")
         self.grip.pack(side=tk.RIGHT, anchor="se", padx=2)
+
 
     def setup_bindings(self):
         self.title_bar.bind("<ButtonPress-1>", self.start_drag_window)
@@ -230,35 +247,15 @@ class AnalysisWindow(tk.Frame):
     def do_resize_window(self, event):
         self.place(width=max(600, self.start_w + event.x_root - self.start_x), height=max(400, self.start_h + event.y_root - self.start_y))
 
-    def load_file(self):
-        path = filedialog.askopenfilename(filetypes=[("EPANET", "*.inp")])
-        if path:
-            self.current_file = path
-            self.projet = ffi_wrapper.create_epanet_project(path)
-            filename = path.split("/")[-1].split("\\")[-1]
-            self.title_label.config(text=f"|  Analyse : {filename}")
-            self.status_label.config(text=f"Fichier {filename} chargé.")
-
-    def randomise_demandes(self):
-        if not self.projet:
-            messagebox.showinfo("Info", "Veuillez charger un réseau d'abord.")
-            return
-
-        seed_str = self.seed_entry.get().strip()
-
-        if seed_str:
-            try:
-                seed_val = int(seed_str)
-            except ValueError:
-                messagebox.showwarning("Attention", "La seed doit être un nombre entier.")
-                return
-        else:
-            seed_val = None
-
-        ffi_wrapper.set_random_seed(seed_val)
-        ffi_wrapper.randomise_demande(self.projet)
-
-        self.status_label.config(text=f"Demandes randomisées (Seed: {seed_val}).")
+    def load_files(self):
+        paths = filedialog.askopenfilenames(filetypes=[("EPANET", "*.inp")])
+        if paths:
+            for p in paths:
+                if p not in self.loaded_files:
+                    self.loaded_files.append(p)
+                    self.files_listbox.insert(tk.END, p.split("/")[-1].split("\\")[-1])
+            self.title_label.config(text=f"|  Analyse : {len(self.loaded_files)} fichier(s)")
+            self.status_label.config(text=f"{len(self.loaded_files)} fichier(s) prêt(s).")
 
     def compute_algo(self, reseau, choix, m_src, m_dst):
         match (choix):
@@ -315,7 +312,6 @@ class AnalysisWindow(tk.Frame):
                     self.compute_algo(reseau, choix_capa, p_src, p_dem)
                     ffi_wrapper.fix_capacite_flow_calcule(reseau)
                     ffi_wrapper.nullifier_flow(reseau)
-                    
 
             self.compute_orientation(reseau, choix_ori, p_src, p_dem)
             self.compute_algo(reseau, choix_algo, p_src, p_dem)
@@ -325,8 +321,8 @@ class AnalysisWindow(tk.Frame):
         return reseau
 
     def run_analysis(self):
-        if not self.projet:
-            messagebox.showinfo("Info", "Veuillez charger un fichier .inp d'abord.")
+        if not self.loaded_files:
+            messagebox.showinfo("Info", "Veuillez charger au moins un fichier .inp d'abord.")
             return
 
         try:
@@ -338,62 +334,92 @@ class AnalysisWindow(tk.Frame):
             epa_min, epa_max, epa_n = map(float, [self.ranges["m_dst_epa"][i].get() for i in range(3)])
             dst_min, dst_max, dst_n = map(float, [self.ranges["m_dst"][i].get() for i in range(3)])
 
+            try:
+                nb_rand = int(self.nb_rand_entry.get())
+            except ValueError:
+                nb_rand = 0
+
+            seeds_to_run = [None] if nb_rand <= 0 else [random.randint(1, 9999999) for _ in range(nb_rand)]
+
             arr_src = np.linspace(src_min, src_max, int(src_n))
             arr_epa = np.linspace(epa_min, epa_max, int(epa_n))
             arr_dst = np.linspace(dst_min, dst_max, int(dst_n))
 
             self.results = []
-            total_iters = len(arr_src) * len(arr_epa) * len(arr_dst)
+            total_iters = len(self.loaded_files) * len(arr_src) * len(arr_epa) * len(arr_dst) * len(seeds_to_run)
             current_iter = 0
             graph_ref = None
             graph_tgt = None
 
-            for m_epa in arr_epa:
-                ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
-                if algo_ref == "EPANET":
-                    graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, 1.0, 1.0, 1.0, 1.0)
-                if algo_tgt == "EPANET":
-                    graph_tgt = self.compute_network(algo_tgt, ori_tgt, capa_tgt, dem_tgt, 1.0, 1.0, 1.0, 1.0)
+            for filepath in self.loaded_files:
+                filename = filepath.split("/")[-1].split("\\")[-1]
 
-                for m_dst in arr_dst:
-                    for m_src in arr_src:
-                        current_iter += 1
-                        self.status_label.config(text=f"Simulation... {current_iter}/{total_iters}")
-                        self.update_idletasks()
+                if nb_rand <= 0:
+                    self.projet = ffi_wrapper.create_epanet_project(filepath)
 
-                        if algo_ref != "EPANET":
-                            if graph_ref is not None:
-                                ffi_wrapper.free_graph(graph_ref)
-                            graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, m_src, m_dst, v_res, v_arc)
-                        if algo_tgt != "EPANET":
-                            if graph_tgt is not None:
-                                ffi_wrapper.free_graph(graph_tgt)
-                            graph_tgt = self.compute_network(algo_tgt, ori_tgt, capa_tgt, dem_tgt, m_src, m_dst, v_res, v_arc)
+                for m_epa in arr_epa:
+                    if nb_rand <= 0:
+                        ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
+                    
+                    for m_dst in arr_dst:
+                        for m_src in arr_src:
+                            for seed_val in seeds_to_run:
+                                current_iter += 1
+                                self.status_label.config(text=f"Simulation... {current_iter}/{total_iters}")
+                                self.update_idletasks()
 
-                        wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
-                        wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
-                        sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
-                        sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
-                        jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
-                        arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / analyse_tools.get_n_arcs_no(graph_ref)) * 100
-                        arcs_nul_ref = 100 - arcs_non_nul_ref
-                        arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / analyse_tools.get_n_arcs_no(graph_tgt)) * 100
-                        arcs_nul_tgt = 100 - arcs_non_nul_tgt
+                                if seed_val is not None:
+                                    self.projet = ffi_wrapper.create_epanet_project(filepath)
+                                    ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
+                                    ffi_wrapper.set_random_seed(seed_val)
+                                    ffi_wrapper.randomise_demande(self.projet)
 
-                        self.results.append({
-                            "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
-                            "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
-                            "jaccard": jaccard_d, "arc_nul_ref": arcs_nul_ref,
-                            "arc_non_nul_ref" : arcs_non_nul_ref, "arc_nul_cible": arcs_nul_tgt,
-                            "arc_non_nul_cible": arcs_non_nul_tgt
-                        })
+                                if algo_ref == "EPANET":
+                                    graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, 1.0, 1.0, 1.0, 1.0)
+                                else:
+                                    graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, m_src, m_dst, v_res, v_arc)
 
-                ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / m_epa)
+                                if algo_tgt == "EPANET":
+                                    graph_tgt = self.compute_network(algo_tgt, ori_tgt, capa_tgt, dem_tgt, 1.0, 1.0, 1.0, 1.0)
+                                else:
+                                    graph_tgt = self.compute_network(algo_tgt, ori_tgt, capa_tgt, dem_tgt, m_src, m_dst, v_res, v_arc)
 
-            if graph_ref:
-                ffi_wrapper.free_graph(graph_ref)
-            if graph_tgt:
-                ffi_wrapper.free_graph(graph_tgt)
+                                wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
+                                wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
+                                sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
+                                sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
+                                jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
+                                arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / analyse_tools.get_n_arcs_no(graph_ref)) * 100
+                                arcs_nul_ref = 100 - arcs_non_nul_ref
+                                arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / analyse_tools.get_n_arcs_no(graph_tgt)) * 100
+                                arcs_nul_tgt = 100 - arcs_non_nul_tgt
+
+                                self.results.append({
+                                    "filepath": filepath, "filename": filename, "seed": seed_val,
+                                    "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
+                                    "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
+                                    "jaccard": jaccard_d, "arc_nul_ref": arcs_nul_ref,
+                                    "arc_non_nul_ref" : arcs_non_nul_ref, "arc_nul_cible": arcs_nul_tgt,
+                                    "arc_non_nul_cible": arcs_non_nul_tgt
+                                })
+                                
+                                if graph_ref:
+                                    ffi_wrapper.free_graph(graph_ref)
+                                    graph_ref = None
+                                if graph_tgt:
+                                    ffi_wrapper.free_graph(graph_tgt)
+                                    graph_tgt = None
+
+                                if seed_val is not None:
+                                    ffi_wrapper.free_project(self.projet)
+                                    self.projet = None
+
+                    if nb_rand <= 0:
+                        ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / m_epa)
+
+                if nb_rand <= 0 and self.projet is not None:
+                    ffi_wrapper.free_project(self.projet)
+                    self.projet = None
 
             self.status_label.config(text=f"Analyse terminée ({total_iters} points).")
             self.update_plot()
@@ -402,22 +428,30 @@ class AnalysisWindow(tk.Frame):
             messagebox.showerror("Erreur lors de l'analyse", str(e))
 
     def on_pick(self, event):
-        if not hasattr(self, 'current_file') or not self.current_file:
-            return
-
+        artist = event.artist
         ind = event.ind[0]
-        res = self.results[ind]
 
-        msg = f"Voulez-vous visualiser ce scénario en détail ?\n\nMult. Demande (EPANET) : {res['m_dst_epa']:.2f}\nMult. Source : {res['m_src']:.2f}\nMult. Dest (Algo) : {res['m_dst']:.2f}"
+        if hasattr(artist, 'file_subset') and artist.file_subset is not None:
+            fname = artist.file_subset
+            f_res = [r for r in self.results if r['filename'] == fname]
+            res = f_res[ind]
+        else:
+            res = self.results[ind]
+
+        msg = f"Fichier : {res['filename']}\n\nVoulez-vous visualiser ce scénario en détail ?\n\nMult. Demande (EPANET) : {res['m_dst_epa']:.2f}\nMult. Source : {res['m_src']:.2f}\nMult. Dest (Algo) : {res['m_dst']:.2f}"
+        
+        if res['seed'] is not None:
+            msg += f"\nSeed Randomisation : {res['seed']}"
+
         if not messagebox.askyesno("Visualisation Croisée", msg):
             return
 
         from src.interface.visualisation import InternalWindow
 
-        def spawn_visualizer(title, algo, ori):
+        def spawn_visualizer(title, algo, ori, filepath):
             win = InternalWindow(self.app_manager.workspace, self.app_manager, title=title)
             self.app_manager.windows.append(win)
-            win.load_file(self.current_file)
+            win.load_file(filepath)
 
             win.algo_var.set(algo)
             win.ori_var.set(ori)
@@ -436,11 +470,18 @@ class AnalysisWindow(tk.Frame):
             
             win.inputs["Prop. Demande"].delete(0, tk.END)
             win.inputs["Prop. Demande"].insert(0, str(res["m_dst"]))
+
+            if res['seed'] is not None:
+                win.randomise_var.set(True)
+                win.inputs["Seed (Optionnel)"].delete(0, tk.END)
+                win.inputs["Seed (Optionnel)"].insert(0, str(res['seed']))
+            else:
+                win.randomise_var.set(False)
             
             win.trigger_run()
             return win
 
-        win_tgt = spawn_visualizer(f"Cible: {self.tgt_algo.get()}", self.tgt_algo.get(), self.tgt_ori.get())
+        win_tgt = spawn_visualizer(f"Cible: {self.tgt_algo.get()}", self.tgt_algo.get(), self.tgt_ori.get(), res['filepath'])
 
     def update_plot(self, event=None):
         if not self.results:
@@ -449,23 +490,69 @@ class AnalysisWindow(tk.Frame):
         x_k = self.keys_map[self.x_var.get()]
         y_k = self.keys_map[self.y_var.get()]
 
-        x_data = [r[x_k] for r in self.results]
-        y_data = [r[y_k] for r in self.results]
-
         self.fig.clf()
         self.ax = self.fig.add_subplot(111)
+        self.scatters = []
 
         c_selection = self.c_var.get()
         
         if c_selection == "Aucune":
-            self.ax.scatter(x_data, y_data, color='#3498db', edgecolors='black', alpha=0.8, s=60, picker=5)
+            unique_files = list(set([r['filename'] for r in self.results]))
+            colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f1c40f', '#e67e22', '#1abc9c', '#34495e']
+            
+            for i, fname in enumerate(unique_files):
+                f_res = [r for r in self.results if r['filename'] == fname]
+                x_d = [r[x_k] for r in f_res]
+                y_d = [r[y_k] for r in f_res]
+                sc = self.ax.scatter(x_d, y_d, label=fname, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
+                sc.file_subset = fname
+                self.scatters.append(sc)
         else:
+            x_data = [r[x_k] for r in self.results]
+            y_data = [r[y_k] for r in self.results]
             c_k = self.keys_map[c_selection]
             c_data = [r[c_k] for r in self.results]
 
             sc = self.ax.scatter(x_data, y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60, picker=5)
+            sc.file_subset = None
+            self.scatters.append(sc)
             cbar = self.fig.colorbar(sc, ax=self.ax)
             cbar.set_label(c_selection, fontsize=9)
+
+        # --- AJOUT DES LIGNES STATISTIQUES ---
+        all_x_data = [r[x_k] for r in self.results]
+        all_y_data = [r[y_k] for r in self.results]
+
+        if all_x_data and all_y_data:
+            x_min, x_max = min(all_x_data), max(all_x_data)
+            y_min, y_max = min(all_y_data), max(all_y_data)
+            x_span = x_max - x_min if x_max != x_min else 1
+            y_span = y_max - y_min if y_max != y_min else 1
+
+            if self.show_mean_y_var.get():
+                mean_y = np.mean(all_y_data)
+                self.ax.axhline(mean_y, color='red', linestyle='--', alpha=0.8, label='Moy. Y')
+                self.ax.text(x_min + x_span*0.1, mean_y, f' Moy. Y: {mean_y:.2f}', color='red', fontsize=8, fontweight='bold', va='bottom')
+
+            if self.show_median_y_var.get():
+                median_y = np.median(all_y_data)
+                self.ax.axhline(median_y, color='blue', linestyle='-.', alpha=0.8, label='Méd. Y')
+                self.ax.text(x_min + x_span*0.1, median_y, f' Méd. Y: {median_y:.2f}', color='blue', fontsize=8, fontweight='bold', va='top')
+
+            if self.show_mean_x_var.get():
+                mean_x = np.mean(all_x_data)
+                self.ax.axvline(mean_x, color='green', linestyle='--', alpha=0.8, label='Moy. X')
+                self.ax.text(mean_x, y_min + y_span*0.1, f' Moy. X: {mean_x:.2f}', color='green', fontsize=8, fontweight='bold', ha='right', rotation=90)
+
+            if self.show_median_x_var.get():
+                median_x = np.median(all_x_data)
+                self.ax.axvline(median_x, color='purple', linestyle='-.', alpha=0.8, label='Méd. X')
+                self.ax.text(median_x, y_min + y_span*0.1, f' Méd. X: {median_x:.2f}', color='purple', fontsize=8, fontweight='bold', ha='left', rotation=90)
+
+        # Gestion de la légende pour inclure les lignes statistiques
+        handles, labels = self.ax.get_legend_handles_labels()
+        if handles:
+            self.ax.legend(handles, labels, fontsize=8)
 
         self.ax.set_xlabel(self.x_var.get(), fontweight='bold')
         self.ax.set_ylabel(self.y_var.get(), fontweight='bold')
@@ -473,4 +560,4 @@ class AnalysisWindow(tk.Frame):
         
         self.fig.tight_layout()
         self.canvas.draw()
-        
+
