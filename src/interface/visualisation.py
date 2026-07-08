@@ -6,11 +6,13 @@ from src.wrapper_tools import ffi_wrapper
 from src.wrapper_tools import analyse_tools
 import numpy as np
 import matplotlib
+import tempfile
+from src.creation_dataset import prepare_dataset
 matplotlib.use("TkAgg")
 
 ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-ORIENTATIONS = ("Aucune", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-CAPACITE = ("Vitesse Max", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
+ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
+CAPACITE = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 COULEUR_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
 COULEUR_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)")
 DEMANDE = ("Uniforme", "EPANET")
@@ -62,9 +64,43 @@ class InternalWindow(tk.Frame):
         main_content = tk.Frame(self, bg="white")
         main_content.pack(fill=tk.BOTH, expand=True)
 
-        self.sidebar = tk.Frame(main_content, width=220, bg="#ecf0f1", padx=10, pady=10, relief="solid", bd=1)
-        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
-        self.sidebar.pack_propagate(False)
+# Conteneur principal
+        self.sidebar_container = tk.Frame(main_content, width=240, bg="#ecf0f1", relief="solid", bd=1)
+        self.sidebar_container.pack(side=tk.LEFT, fill=tk.Y)
+        self.sidebar_container.pack_propagate(False)
+
+        # Canvas et Scrollbar
+        self.canvas_side = tk.Canvas(self.sidebar_container, bg="#ecf0f1", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.sidebar_container, orient="vertical", command=self.canvas_side.yview)
+        
+        self.sidebar = tk.Frame(self.canvas_side, bg="#ecf0f1", padx=10, pady=10)
+        self.sidebar.bind("<Configure>", lambda e: self.canvas_side.configure(scrollregion=self.canvas_side.bbox("all")))
+        self.canvas_side.create_window((0, 0), window=self.sidebar, anchor="nw", width=220)
+        self.canvas_side.configure(yscrollcommand=self.scrollbar.set)
+
+        # L'ORDRE EST CRUCIAL : On pack la scrollbar d'abord
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas_side.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Événements de la molette
+        def _on_mousewheel(event):
+            if event.num == 4 or getattr(event, 'delta', 0) > 0:
+                self.canvas_side.yview_scroll(-1, "units")
+            elif event.num == 5 or getattr(event, 'delta', 0) < 0:
+                self.canvas_side.yview_scroll(1, "units")
+
+        def _bind_scroll(e):
+            self.sidebar_container.bind_all("<MouseWheel>", _on_mousewheel)
+            self.sidebar_container.bind_all("<Button-4>", _on_mousewheel)
+            self.sidebar_container.bind_all("<Button-5>", _on_mousewheel)
+
+        def _unbind_scroll(e):
+            self.sidebar_container.unbind_all("<MouseWheel>")
+            self.sidebar_container.unbind_all("<Button-4>")
+            self.sidebar_container.unbind_all("<Button-5>")
+
+        self.sidebar_container.bind("<Enter>", _bind_scroll)
+        self.sidebar_container.bind("<Leave>", _unbind_scroll)
 
         tk.Label(self.sidebar, text="Algo Principal:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w")
         self.algo_var = tk.StringVar(value="EPANET")
@@ -85,7 +121,7 @@ class InternalWindow(tk.Frame):
         self.inputs = {}
         fields = [("Mult. Demande", "1.0"), ("Vit. Rés (m/s)", "3.0"),
                   ("Vit. Arcs (m/s)", "2.0"), ("Prop. Source", "1.0"),
-                  ("Prop. Demande", "1.0"), ("Seed (Optionnel)", "")]
+                  ("Prop. Demande", "1.0"), ("Portion", "0.1"), ("Seed (Optionnel)", "")]
         for label, default in fields:
             tk.Label(self.sidebar, text=label+":", bg="#ecf0f1",
                      font=("Segoe UI", 8)).pack(anchor="w")
@@ -155,11 +191,12 @@ class InternalWindow(tk.Frame):
         self.canvas.bind("<Double-1>", self.on_canvas_click)
 
     def toggle_sidebar(self):
-        if self.sidebar.winfo_ismapped():
-            self.sidebar.pack_forget()
+        if self.sidebar_container.winfo_ismapped():
+            self.sidebar_container.pack_forget()
             self.toggle_btn.config(text="▶ Options")
         else:
-            self.sidebar.pack(side=tk.LEFT, fill=tk.Y, before=self.canvas)
+            # On la replace simplement à gauche
+            self.sidebar_container.pack(side=tk.LEFT, fill=tk.Y, before=self.canvas)
             self.toggle_btn.config(text="◀ Options")
 
     def set_focus(self, event=None):
@@ -247,18 +284,21 @@ class InternalWindow(tk.Frame):
                 ffi_wrapper.compute_flow_edmonds_karp(reseau)
                 ffi_wrapper.delete_source_destination(reseau)
 
-    def compute_orientation(self, reseau, choix_ori, p_src, p_dem):
+    def compute_orientation(self, reseau, choix_ori, p_src, p_dem, portion=1.0):
         match (choix_ori):
             case "EPANET":
                 ffi_wrapper.reget_epanet_flow(self.projet, reseau)
                 ffi_wrapper.fix_capacite_flow_oriente(reseau)
+            case "EPANET Partiel":
+                ffi_wrapper.reget_epanet_flow(self.projet, reseau)
+                ffi_wrapper.fix_capacite_flow_oriente_portion(reseau, portion)
             case "Aucune":
-                None
+                pass
             case _:
                 self.compute_algo(reseau, choix_ori, p_src, p_dem)
                 ffi_wrapper.fix_capacite_flow_oriente(reseau)
 
-    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa):
+    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa, portion=1.0):
         ffi_wrapper.modif_multiplicateur(self.projet, mult_epa)
         reseau = None
         
@@ -266,7 +306,7 @@ class InternalWindow(tk.Frame):
             ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
         else:                        
-            besoin_epanet = (choix_dem == "EPANET") or (choix_capa == "EPANET") or (choix_ori == "EPANET")
+            besoin_epanet = (choix_dem == "EPANET") or (choix_capa in ["EPANET", "EPANET Partiel"]) or (choix_ori in ["EPANET", "EPANET Partiel"])
             if besoin_epanet:
                 ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
@@ -278,6 +318,10 @@ class InternalWindow(tk.Frame):
                 case "EPANET":
                     ffi_wrapper.reget_epanet_flow(self.projet, reseau)
                     ffi_wrapper.fix_capacite_flow_calcule(reseau)
+                case "EPANET Partiel":
+                    ffi_wrapper.reget_epanet_flow(self.projet, reseau)
+                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                    ffi_wrapper.fix_capacite_flow_calcule_portion(reseau, portion)
                 case "Vitesse Max":
                     ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
                 case _:
@@ -286,12 +330,12 @@ class InternalWindow(tk.Frame):
                     ffi_wrapper.fix_capacite_flow_calcule(reseau)
                     ffi_wrapper.nullifier_flow(reseau)
 
-            self.compute_orientation(reseau, choix_ori, p_src, p_dem)
+            self.compute_orientation(reseau, choix_ori, p_src, p_dem, portion)
             self.compute_algo(reseau, choix_algo, p_src, p_dem)
             if choix_dem == "EPANET":
                 ffi_wrapper.get_epanet_fulldemande(self.projet, reseau)
 
-        ffi_wrapper.modif_multiplicateur(self.projet, 1 / mult_epa)
+        ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / mult_epa)
         return reseau
 
     def trigger_run(self):
@@ -304,6 +348,7 @@ class InternalWindow(tk.Frame):
             self.update_idletasks()
             
             mult = float(self.inputs["Mult. Demande"].get())
+            portion_val = float(self.inputs["Portion"].get())
 
             seed_str = self.inputs["Seed (Optionnel)"].get().strip()
             if seed_str:
@@ -324,7 +369,7 @@ class InternalWindow(tk.Frame):
             if self.randomise_var.get():
                 ffi_wrapper.randomise_demande(self.projet)
 
-            reseau = self.compute_network(choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult)
+            reseau = self.compute_network(choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult, portion_val)
             self.update_dashboard(reseau)
             self.extract_data(reseau)
             ffi_wrapper.free_graph(reseau)

@@ -71,6 +71,15 @@ void print_graph_details(struct graph *G, flotant v_res, flotant v_arc) {
 	printf("=====================================================================================\n\n");
 }
 
+void fermeture_arc_ferme(struct graph* reseau) {
+	for (int i=0; i < reseau->nb_arcs ; i++) {
+		if (!(reseau->arcs[i].ouvert)) {
+			reseau->arcs[i].capacite = 0.0;
+		}
+	}
+
+}
+
 void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vitesse_arcs) {
 	for (int i=0; i < reseau->nb_arcs ; i++) {
 		struct sommet* source = reseau->arcs[i].source;
@@ -83,6 +92,7 @@ void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vite
 			}
 		}
 	}
+	fermeture_arc_ferme(reseau);
 }
 
 flotant get_flow_non_oriente(struct graph* reseau, nbr index_aller, nbr index_retour) {
@@ -108,8 +118,31 @@ void fix_capacite_flow_calcule(struct graph* reseau) {
 			}
 		}
 	}
+	fermeture_arc_ferme(reseau);
 }
 
+void fix_capacite_flow_calcule_portion(struct graph* reseau, flotant portion) {
+	nbr nb_paires = reseau->nb_arcs / 2;
+	nbr target = (nbr)(nb_paires * portion);
+	nbr selected = 0;
+
+	for (nbr i = 0; i < nb_paires && selected < target; i++) {
+		flotant prob = (flotant)(target - selected) / (nb_paires - i);
+		flotant r = (flotant)rand() / RAND_MAX;
+
+		if (r < prob) {
+			nbr idx_aller = i * 2;
+			nbr idx_retour = i * 2 + 1;
+			
+			flotant flow_abs = get_flow_non_oriente(reseau, idx_aller, idx_retour);
+			
+			reseau->arcs[idx_aller].capacite = flow_abs;
+			reseau->arcs[idx_retour].capacite = flow_abs;
+			
+			selected++;
+		}
+	}
+}
 
 void fix_capacite_flow_oriente(struct graph* reseau) {
 	for (int i=0; i < reseau->nb_arcs ; i++) {
@@ -123,13 +156,30 @@ void fix_capacite_flow_oriente(struct graph* reseau) {
 	}
 }
 
-void fermeture_arc_ferme(struct graph* reseau) {
-	for (int i=0; i < reseau->nb_arcs ; i++) {
-		if (!(reseau->arcs[i].ouvert)) {
-			reseau->arcs[i].capacite = 0.0;
+void fix_capacite_flow_oriente_portion(struct graph* reseau, flotant portion) {
+	nbr nb_paires = reseau->nb_arcs / 2;
+	nbr target = (nbr)(nb_paires * portion);
+	nbr selected = 0;
+
+	for (nbr i = 0; i < nb_paires && selected < target; i++) {
+		flotant prob = (flotant)(target - selected) / (nb_paires - i);
+		flotant r = (flotant)rand() / RAND_MAX;
+
+		if (r < prob) {
+			nbr idx_aller = i * 2;
+			nbr idx_retour = i * 2 + 1;
+			
+			// On applique la contrainte d'orientation EPANET
+			if (!(reseau->arcs[idx_aller].flow > 0.0)) {
+				reseau->arcs[idx_aller].capacite = 0.0;
+			}
+			if (!(reseau->arcs[idx_retour].flow > 0.0)) {
+				reseau->arcs[idx_retour].capacite = 0.0;
+			}
+			
+			selected++;
 		}
 	}
-
 }
 
 void delete_source_destination(struct graph* reseau) {

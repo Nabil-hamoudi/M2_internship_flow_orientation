@@ -69,7 +69,6 @@ def get_nom_type_sommet(type_sommet):
 def get_nom_type_arc(type_arc):
     return lib.get_nom_type_arc(type_arc)
 
-
 def extraire_arcs_orientes_dominants(p_reseau):
     nb_tuyaux = p_reseau.nb_arcs // 2
 
@@ -286,3 +285,13 @@ def get_wp_flow(graph_ref, graph_sim):
         return 0.0 
 
     return somme_erreurs / somme_flux_ref
+
+def get_arcs_dominants_cible_non_ref(graph_ref, graph_sim):
+    active_ref = extraire_arcs_orientes_dominants(graph_ref)
+    active_sim = extraire_arcs_orientes_dominants(graph_sim)
+    return np.setdiff1d(active_sim, active_ref)
+
+def get_intersection_arcs_dominants(graph_ref, graph_sim):
+    active_ref = extraire_arcs_orientes_dominants(graph_ref)
+    active_sim = extraire_arcs_orientes_dominants(graph_sim)
+    return np.intersect1d(active_ref, active_sim)

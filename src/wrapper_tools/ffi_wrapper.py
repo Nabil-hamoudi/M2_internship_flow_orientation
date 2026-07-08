@@ -39,6 +39,15 @@ def fix_capacite_flow_oriente(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.fix_capacite_flow_oriente(p_reseau)
 
+def fix_capacite_flow_calcule_portion(p_reseau, portion):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.fix_capacite_flow_calcule_portion(p_reseau, portion);
+
+
+def fix_capacite_flow_oriente_portion(p_reseau, portion):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.fix_capacite_flow_oriente_portion(p_reseau, portion);
+
 def get_epanet_demande(p_projet, p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.get_epanet_demande(p_projet, p_reseau)
