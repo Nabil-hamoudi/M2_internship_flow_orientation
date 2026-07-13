@@ -26,11 +26,10 @@ class AnalysisWindow(tk.Frame):
         self.projet = None
         self.loaded_files = []
         self.results = []
-        
-        # Création du dossier séparé pour stocker les fichiers préparés
+
         self.prep_dir = os.path.join(os.getcwd(), "prepared_datasets")
         os.makedirs(self.prep_dir, exist_ok=True)
-        
+
         self.keys_map = {
             "Mult. Source": "m_src",
             "Mult. Dest. (EPA)": "m_dst_epa",
@@ -158,7 +157,6 @@ class AnalysisWindow(tk.Frame):
         self.max_res_ent.insert(0, "1")
         self.max_res_ent.pack(side=tk.LEFT, padx=2)
         
-        # NOUVEAU : Mise à jour en temps réel lors de la frappe
         self.min_res_ent.bind("<KeyRelease>", self.update_plot)
         self.max_res_ent.bind("<KeyRelease>", self.update_plot)
 
@@ -212,13 +210,12 @@ class AnalysisWindow(tk.Frame):
         self.targets_container = tk.Frame(self.sidebar, bg="#ecf0f1")
         self.targets_container.pack(fill=tk.X, pady=5)
         
-        self.target_counter = 0     # Compteur pour garantir un ID unique
-        self.target_ui_rows = []    # Liste des boîtes créées
-        self.target_configs = []    # Configurations figées au moment du "Run"
+        self.target_counter = 0
+        self.target_ui_rows = []
+        self.target_configs = []
 
         tk.Button(self.sidebar, text="➕ Ajouter un Modèle Cible", bg="#f39c12", font=("Segoe UI", 8, "bold"), command=self.add_target_ui).pack(fill=tk.X, pady=(0, 5))
         
-        # On ajoute une cible par défaut au démarrage
         self.add_target_ui()
 
         # --- FILTRES DE RÉSULTATS (POST-RUN) ---
@@ -361,7 +358,6 @@ class AnalysisWindow(tk.Frame):
         ori_var = tk.StringVar(value="Aucune")
         ttk.Combobox(tgt_f, textvariable=ori_var, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
-        # Sauvegarde de la boîte
         self.target_ui_rows.append({
             'frame': tgt_f, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid
         })
@@ -537,139 +533,130 @@ class AnalysisWindow(tk.Frame):
 
         return reseau
 
+    def _extract_analysis_params(self):
+        self.target_configs = []
+        for i, row in enumerate(self.target_ui_rows):
+            name = f"C{i+1}: {row['algo'].get()[:4]} | O:{row['ori'].get()[:4]} | C:{row['capa'].get()[:4]}"
+            self.target_configs.append({
+                "uid": row['uid'], "name": name,
+                "algo": row['algo'].get(), "ori": row['ori'].get(),
+                "capa": row['capa'].get(), "dem": row['dem'].get(),
+                "var": row['var']
+            })
+
+        # Grilles de balayage
+        src_min, src_max, src_n = map(float, [self.ranges["m_src"][i].get() for i in range(3)])
+        epa_min, epa_max, epa_n = map(float, [self.ranges["m_dst_epa"][i].get() for i in range(3)])
+        dst_min, dst_max, dst_n = map(float, [self.ranges["m_dst"][i].get() for i in range(3)])
+
+        try: nb_rand = int(self.nb_rand_entry.get())
+        except ValueError: nb_rand = 0
+
+        return {
+            "v_res": float(self.v_res.get()),
+            "v_arc": float(self.v_arc.get()),
+            "portion": float(self.portion_ent.get()),
+            "ref_algo": self.ref_algo.get(),
+            "ref_capa": self.ref_capa.get(),
+            "ref_ori": self.ref_ori.get(),
+            "ref_dem": self.ref_dem.get(),
+            "arr_src": np.linspace(src_min, src_max, int(src_n)),
+            "arr_epa": np.linspace(epa_min, epa_max, int(epa_n)),
+            "arr_dst": np.linspace(dst_min, dst_max, int(dst_n)),
+            "seeds": [None] if nb_rand <= 0 else [random.randint(1, 9999999) for _ in range(nb_rand)],
+            "targets": self.target_configs
+        }
+
+    def _compute_metrics(self, graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, m_src, m_epa, m_dst):
+        """Sous-fonction : Calcule les métriques de comparaison entre le graphe de référence et cible."""
+        wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
+        wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
+        sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
+        sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
+        jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
+        
+        arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / analyse_tools.get_n_arcs_no(graph_ref)) * 100
+        arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
+        arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / analyse_tools.get_n_arcs_no(graph_tgt)) * 100
+        arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
+        
+        nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
+        nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
+        nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
+
+        return {
+            "filepath": filepath, "filename": filename, "seed": seed_val,
+            "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
+            "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
+            "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
+            "jaccard": jaccard_d,  
+            "arc_nul_ref": arcs_nul_ref.shape[0] / analyse_tools.get_n_arcs_no(graph_ref) * 100,
+            "arc_non_nul_ref" : arcs_non_nul_ref, 
+            "arc_nul_cible": arcs_nul_tgt.shape[0] / analyse_tools.get_n_arcs_no(graph_tgt) * 100,
+            "arc_non_nul_cible": arcs_non_nul_tgt,
+            "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
+            "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
+        }
+
     def run_analysis(self):
         if not self.loaded_files:
             messagebox.showinfo("Info", "Veuillez charger au moins un fichier .inp d'abord.")
             return
-
         if not self.target_ui_rows:
             messagebox.showinfo("Info", "Veuillez ajouter au moins un modèle cible.")
             return
 
-        self.target_configs = []
-        for i, row in enumerate(self.target_ui_rows):
-            algo_val = row['algo'].get()
-            ori_val = row['ori'].get()
-            capa_val = row['capa'].get()
-            dem_val = row['dem'].get()
-            
-            name = f"C{i+1}: {algo_val[:4]} | O:{ori_val[:4]} | C:{capa_val[:4]}"
-            
-            self.target_configs.append({
-                "uid": row['uid'],
-                "name": name,
-                "algo": algo_val,
-                "ori": ori_val,
-                "capa": capa_val,
-                "dem": dem_val,
-                "var": row['var']
-            })
+        params = self._extract_analysis_params()
+        self.results = []
+        
+        total_iters = len(self.loaded_files) * len(params['arr_src']) * len(params['arr_epa']) * len(params['arr_dst']) * len(params['seeds']) * len(params['targets'])
+        current_iter = 0
 
-        file_flags = {}
-        for filepath in self.loaded_files:
-            file_flags[filepath] = prepare_dataset.file_contains_elements(filepath)
+        file_flags = {filepath: prepare_dataset.file_contains_elements(filepath) for filepath in self.loaded_files}
 
         try:
-            v_res, v_arc = float(self.v_res.get()), float(self.v_arc.get())
-            portion_val = float(self.portion_ent.get())
-            algo_ref, capa_ref, ori_ref, dem_ref = self.ref_algo.get(), self.ref_capa.get(), self.ref_ori.get(), self.ref_dem.get()
-
-            src_min, src_max, src_n = map(float, [self.ranges["m_src"][i].get() for i in range(3)])
-            epa_min, epa_max, epa_n = map(float, [self.ranges["m_dst_epa"][i].get() for i in range(3)])
-            dst_min, dst_max, dst_n = map(float, [self.ranges["m_dst"][i].get() for i in range(3)])
-
-            try: nb_rand = int(self.nb_rand_entry.get())
-            except ValueError: nb_rand = 0
-
-            seeds_to_run = [None] if nb_rand <= 0 else [random.randint(1, 9999999) for _ in range(nb_rand)]
-
-            arr_src = np.linspace(src_min, src_max, int(src_n))
-            arr_epa = np.linspace(epa_min, epa_max, int(epa_n))
-            arr_dst = np.linspace(dst_min, dst_max, int(dst_n))
-
-            self.results = []
-
-            total_iters = len(self.loaded_files) * len(arr_src) * len(arr_epa) * len(arr_dst) * len(seeds_to_run) * len(self.target_configs)
-            current_iter = 0
-            graph_ref = None
-
             for filepath in self.loaded_files:
                 filename = os.path.basename(filepath)
                 flags = file_flags[filepath]
 
-                if nb_rand <= 0:
+                for seed_val in params['seeds']:
                     self.projet = ffi_wrapper.create_epanet_project(filepath)
 
-                for m_epa in arr_epa:
-                    if nb_rand <= 0:
+                    if seed_val is not None:
+                        ffi_wrapper.set_random_seed(seed_val)
+                        ffi_wrapper.randomise_demande(self.projet)
+
+                    for m_epa in params['arr_epa']:
                         ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
-                    
-                    for m_dst in arr_dst:
-                        for m_src in arr_src:
-                            for seed_val in seeds_to_run:
 
-                                if seed_val is not None:
-                                    self.projet = ffi_wrapper.create_epanet_project(filepath)
-                                    ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
-                                    ffi_wrapper.set_random_seed(seed_val)
-                                    ffi_wrapper.randomise_demande(self.projet)
+                        for m_dst in params['arr_dst']:
+                            for m_src in params['arr_src']:
 
-                                # Calcul du graphe de Référence (Une seule fois pour N Cibles)
-                                if algo_ref == "EPANET":
-                                    graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, 1.0, 1.0, 1.0, 1.0, portion_val)
+                                if params['ref_algo'] == "EPANET":
+                                    graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, 1.0, 1.0, params['portion'])
                                 else:
-                                    graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, m_src, m_dst, v_res, v_arc, portion_val)
+                                    graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], m_src, m_dst, params['v_res'], params['v_arc'], params['portion'])
 
-                                # --- NOUVEAU BLOC : Boucle sur toutes les Cibles ---
-                                for t_idx, tgt in enumerate(self.target_configs):
+                                for tgt in params['targets']:
                                     current_iter += 1
                                     self.status_label.config(text=f"Calcul : {current_iter}/{total_iters} ...")
                                     self.update_idletasks()
 
                                     if tgt['algo'] == "EPANET":
-                                        graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, 1.0, 1.0, portion_val)
+                                        graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, 1.0, 1.0, params['portion'])
                                     else:
-                                        graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], m_src, m_dst, v_res, v_arc, portion_val)
+                                        graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], m_src, m_dst, params['v_res'], params['v_arc'], params['portion'])
 
-                                    wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
-                                    wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
-                                    sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
-                                    sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
-                                    jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
-                                    arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / analyse_tools.get_n_arcs_no(graph_ref)) * 100
-                                    arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
-                                    arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / analyse_tools.get_n_arcs_no(graph_tgt)) * 100
-                                    arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
-                                    nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
-                                    nb_dom_cible = analyse_tools.get_n_arcs_non_nul(graph_tgt)
-                                    nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
-                                    nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
+                                    metrics = self._compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, m_src, m_epa, m_dst)
+                                    self.results.append(metrics)
 
-
-                                    self.results.append({
-                                        "filepath": filepath, "filename": filename, "seed": seed_val,
-                                        "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags, # MODIFIÉ ICI
-                                        "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
-                                        "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
-                                        "jaccard": jaccard_d,  "arc_nul_ref": arcs_nul_ref.shape[0] / analyse_tools.get_n_arcs_no(graph_ref) * 100,
-                                        "arc_non_nul_ref" : arcs_non_nul_ref, "arc_nul_cible": arcs_nul_tgt.shape[0] / analyse_tools.get_n_arcs_no(graph_tgt) * 100,
-                                        "arc_non_nul_cible": arcs_non_nul_tgt,
-                                        "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
-                                        "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
-                                    })
-                                    
                                     ffi_wrapper.free_graph(graph_tgt)
 
                                 ffi_wrapper.free_graph(graph_ref)
 
-                                if seed_val is not None:
-                                    ffi_wrapper.free_project(self.projet)
-                                    self.projet = None
+                        if m_epa != 0.0:
+                            ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / m_epa)
 
-                    if nb_rand <= 0:
-                        ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / m_epa)
-
-                if nb_rand <= 0 and self.projet is not None:
                     ffi_wrapper.free_project(self.projet)
                     self.projet = None
 
@@ -677,13 +664,15 @@ class AnalysisWindow(tk.Frame):
             self.update_plot()
 
         except Exception as e:
+            if getattr(self, 'projet', None) is not None:
+                ffi_wrapper.free_project(self.projet)
+                self.projet = None
             messagebox.showerror("Erreur lors de l'analyse", str(e))
 
     def update_plot(self, event=None):
         if not hasattr(self, 'results') or not self.results:
             return
 
-        # --- GESTION DE L'INTERFACE (Griser les options inutiles) ---
         plot_type = self.plot_type_var.get()
         
         if plot_type == "Histogramme (1D)":
@@ -696,9 +685,7 @@ class AnalysisWindow(tk.Frame):
             self.cb_c.config(state="readonly")
             self.chk_mean_y.config(state="normal")
             self.chk_median_y.config(state="normal")
-        # ------------------------------------------------------------
 
-        # 1. APPLICATION DU FILTRAGE DYNAMIQUE
         filtered_results = []
         try:
             min_res = int(self.min_res_ent.get()) if self.min_res_ent.get().strip() else 0
@@ -709,12 +696,10 @@ class AnalysisWindow(tk.Frame):
         for r in self.results:
             flags = r['flags']
             
-            # Filtre sur la visibilité de la cible (par UID uniquement)
             tgt_config = next((c for c in self.target_configs if c['uid'] == r['target_uid']), None)
-            if not tgt_config: continue             # La boîte cible a été supprimée avec la croix
-            if not tgt_config['var'].get(): continue  # La boîte est décochée
+            if not tgt_config: continue
+            if not tgt_config['var'].get(): continue 
             
-            # Filtres sur les composants du réseau
             if self.exclude_tanks.get() and flags.get("tanks", False): continue
             if self.exclude_pumps.get() and flags.get("pumps", False): continue
             if self.exclude_valves.get() and flags.get("valves", False): continue
@@ -746,7 +731,6 @@ class AnalysisWindow(tk.Frame):
         all_x_data = [r[x_k] for r in filtered_results]
         all_y_data = [r[y_k] for r in filtered_results] if y_k else []
 
-        # --- TRACÉS ---
         if plot_type == "Histogramme (1D)":
             self.ax.hist(all_x_data, bins=nb_bins, color='#3498db', edgecolor='black', alpha=0.8)
             self.ax.set_ylabel("Nombre de réseaux (Fréquence)", fontweight='bold')
@@ -754,34 +738,26 @@ class AnalysisWindow(tk.Frame):
         elif plot_type == "Carte de chaleur (2D)":
             c_selection = self.c_var.get()
             
-            # 1. Sécuriser la sélection : si c'est une catégorie ou "Aucune", on désactive c_k
             if c_selection in ["Cibles", "Fichiers", "Aucune"]:
                 c_k = None
             else:
                 c_k = self.keys_map.get(c_selection)
 
-            # 2. Utiliser numpy.histogram2d pour grouper les valeurs en 'nb_bins' divisions
-            # H_count contient la densité (le nombre de cas par case)
             H_count, xedges, yedges = np.histogram2d(all_x_data, all_y_data, bins=nb_bins)
 
             if c_k:
-                # Si on a sélectionné une métrique pour la couleur, on calcule la somme par case
                 c_data = [r[c_k] for r in filtered_results]
                 H_sum, _, _ = np.histogram2d(all_x_data, all_y_data, bins=nb_bins, weights=c_data)
-                
-                # On divise la somme par le nombre pour obtenir la moyenne
+
                 with np.errstate(divide='ignore', invalid='ignore'):
                     Z = np.true_divide(H_sum, H_count)
             else:
                 Z = H_count
 
-            # On met NaN là où il n'y a pas de données pour laisser la case vide (blanche/transparente)
             Z[H_count == 0] = np.nan
-            
-            # 3. Affichage : On transpose Z (.T) pour que X soit en abscisse et Y en ordonnée
+
             im = self.ax.imshow(Z.T, cmap='plasma', aspect='auto', origin='lower')
-            
-            # 4. Étiquettes des axes (on affiche le centre de chaque division)
+
             x_centers = (xedges[:-1] + xedges[1:]) / 2
             y_centers = (yedges[:-1] + yedges[1:]) / 2
             
@@ -795,7 +771,7 @@ class AnalysisWindow(tk.Frame):
             cbar = self.fig.colorbar(im, ax=self.ax)
             cbar.set_label(f"Moyenne : {c_selection}" if c_k else "Densité (Nombre de réseaux)", fontsize=9)
 
-        else: # Nuage de points
+        else:
             c_selection = self.c_var.get()
             
             if c_selection == "Cibles" or c_selection == "Aucune":
@@ -812,7 +788,6 @@ class AnalysisWindow(tk.Frame):
                 
 
             elif c_selection == "Fichiers":
-                # NOUVEAU : Coloration par Fichier 
                 unique_files = list(dict.fromkeys([r['filename'] for r in filtered_results]))
                 colors = ['#e67e22', '#1abc9c', '#e74c3c', '#3498db', '#9b59b6', '#34495e', '#2ecc71', '#f1c40f']
                 
@@ -834,7 +809,6 @@ class AnalysisWindow(tk.Frame):
                 cbar = self.fig.colorbar(sc, ax=self.ax)
                 cbar.set_label(c_selection, fontsize=9)
 
-        # --- LIGNES STATISTIQUES ---
         if y_k and plot_type != "Histogramme (1D)":
             x_min, x_max = self.ax.get_xlim()
             y_min, y_max = self.ax.get_ylim()
@@ -877,7 +851,6 @@ class AnalysisWindow(tk.Frame):
         artist = event.artist
         ind = event.ind[0]
 
-        # On récupère les données exactes du point cliqué depuis l'attribut qu'on a créé
         res = artist.custom_data[ind]
 
         msg = f"Fichier : {res['filename']}\nCible : {res['target_name']}\n\nVoulez-vous visualiser ce scénario en détail ?\n\nMult. Demande (EPANET) : {res['m_dst_epa']:.2f}\nMult. Source : {res['m_src']:.2f}\nMult. Dest (Algo) : {res['m_dst']:.2f}"
