@@ -31,9 +31,16 @@ class AnalysisWindow(tk.Frame):
         os.makedirs(self.prep_dir, exist_ok=True)
 
         self.keys_map = {
-            "Mult. Source": "m_src",
-            "Mult. Dest. (EPA)": "m_dst_epa",
-            "Mult. Dest. (Algo)": "m_dst",
+            "Réf - Mult. Source": "ref_m_src",
+            "Réf - Mult. Dest. (EPA)": "ref_m_epa",
+            "Réf - Mult. Dest. (Algo)": "ref_m_dst",
+            "Réf - Vitesse": "ref_vitesse",
+            "Réf - Portion": "ref_portion",
+            "Cible - Mult. Source": "tgt_m_src",
+            "Cible - Mult. Dest. (EPA)": "tgt_m_epa",
+            "Cible - Mult. Dest. (Algo)": "tgt_m_dst",
+            "Cible - Vitesse": "tgt_vitesse",
+            "Cible - Portion": "tgt_portion",
             "Satisfaisabilité Réf (%)": "sat_ref",
             "Satisfaisabilité Cible (%)": "sat_tgt",
             "Erreur Absolue ponderee (WAPE %)": "wape",
@@ -52,6 +59,33 @@ class AnalysisWindow(tk.Frame):
         self.place(x=100, y=100, width=1100, height=750)
         self.set_focus()
 
+    def create_grid_ui(self, parent):
+        grid = tk.Frame(parent, bg="#ecf0f1")
+        grid.pack(fill=tk.X, pady=2)
+        tk.Label(grid, text="Min", bg="#ecf0f1", width=5).grid(row=0, column=1)
+        tk.Label(grid, text="Max", bg="#ecf0f1", width=5).grid(row=0, column=2)
+        tk.Label(grid, text="Nb", bg="#ecf0f1", width=4).grid(row=0, column=3)
+
+        ranges = {}
+        params = [
+            ("m_src", "M.Src", "1.0", "1.0", "1"),
+            ("m_dst_epa", "M.Dst(E)", "1.0", "1.0", "1"),
+            ("m_dst", "M.Dst(A)", "1.0", "1.0", "1"),
+            ("vitesse", "Vitesse", "2.0", "2.0", "1"),
+            ("portion", "Portion", "1.0", "1.0", "1")
+        ]
+        for i, (key, label, d_min, d_max, d_n) in enumerate(params):
+            tk.Label(grid, text=label, bg="#ecf0f1", anchor="w", font=("Segoe UI", 8)).grid(row=i+1, column=0, sticky="w")
+            ent_min, ent_max, ent_n = tk.Entry(grid, width=5), tk.Entry(grid, width=5), tk.Entry(grid, width=4)
+            ent_min.insert(0, d_min)
+            ent_max.insert(0, d_max)
+            ent_n.insert(0, d_n)
+            ent_min.grid(row=i+1, column=1, padx=2, pady=1)
+            ent_max.grid(row=i+1, column=2, padx=2)
+            ent_n.grid(row=i+1, column=3, padx=2)
+            ranges[key] = (ent_min, ent_max, ent_n)
+        return ranges
+
     def setup_ui(self):
         self.title_bar = tk.Frame(self, bg="#8e44ad", relief="flat", bd=0, height=25)
         self.title_bar.pack(fill=tk.X, side=tk.TOP)
@@ -64,12 +98,10 @@ class AnalysisWindow(tk.Frame):
         main_content = tk.Frame(self, bg="white")
         main_content.pack(fill=tk.BOTH, expand=True)
 
-        # Conteneur principal
         self.sidebar_container = tk.Frame(main_content, width=280, bg="#ecf0f1", relief="solid", bd=1)
         self.sidebar_container.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar_container.pack_propagate(False)
 
-        # Canvas et Scrollbar
         self.canvas_side = tk.Canvas(self.sidebar_container, bg="#ecf0f1", highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self.sidebar_container, orient="vertical", command=self.canvas_side.yview)
         
@@ -78,11 +110,9 @@ class AnalysisWindow(tk.Frame):
         self.canvas_side.create_window((0, 0), window=self.sidebar, anchor="nw", width=260)
         self.canvas_side.configure(yscrollcommand=self.scrollbar.set)
         
-        # L'ORDRE EST CRUCIAL : On pack la scrollbar AVANT le canvas pour qu'elle ne soit pas écrasée
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas_side.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Événements de la molette
         def _on_mousewheel_analyse(event):
             if event.num == 4 or getattr(event, 'delta', 0) > 0:
                 self.canvas_side.yview_scroll(-1, "units")
@@ -135,14 +165,12 @@ class AnalysisWindow(tk.Frame):
         self.p_exp_ent.insert(0, "0.5")
         self.p_exp_ent.grid(row=1, column=1, pady=2)
 
-        # --- FILTRES D'EXCLUSION DE COMPOSANTS ---
         exclude_f = tk.LabelFrame(self.sidebar, text="Filtres d'exclusion et conditions", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         exclude_f.pack(fill=tk.X, pady=(0, 10))
         self.exclude_tanks = tk.BooleanVar(value=False)
         self.exclude_pumps = tk.BooleanVar(value=False)
         self.exclude_valves = tk.BooleanVar(value=False)
         
-        # NOUVEAU : Ajout de command=self.update_plot
         tk.Checkbutton(exclude_f, text="Exclure si Bassins (Tanks)", variable=self.exclude_tanks, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
         tk.Checkbutton(exclude_f, text="Exclure si Pompes (Pumps)", variable=self.exclude_pumps, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
         tk.Checkbutton(exclude_f, text="Exclure si Vannes (Valves)", variable=self.exclude_valves, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
@@ -159,25 +187,6 @@ class AnalysisWindow(tk.Frame):
         
         self.min_res_ent.bind("<KeyRelease>", self.update_plot)
         self.max_res_ent.bind("<KeyRelease>", self.update_plot)
-
-        tk.Label(self.sidebar, text="Balayage (Grid Search)", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        grid = tk.Frame(self.sidebar, bg="#ecf0f1")
-        grid.pack(fill=tk.X, pady=2)
-        tk.Label(grid, text="Min", bg="#ecf0f1", width=5).grid(row=0, column=1)
-        tk.Label(grid, text="Max", bg="#ecf0f1", width=5).grid(row=0, column=2)
-        tk.Label(grid, text="Nb", bg="#ecf0f1", width=4).grid(row=0, column=3)
-
-        self.ranges = {}
-        for i, (key, label) in enumerate([("m_src", "M.Src"), ("m_dst_epa", "M.Dst(E)"), ("m_dst", "M.Dst(A)")]):
-            tk.Label(grid, text=label, bg="#ecf0f1", anchor="w", font=("Segoe UI", 8)).grid(row=i+1, column=0, sticky="w")
-            ent_min, ent_max, ent_n = tk.Entry(grid, width=5), tk.Entry(grid, width=5), tk.Entry(grid, width=4)
-            ent_min.insert(0, "1.0")
-            ent_max.insert(0, "1.0")
-            ent_n.insert(0, "1")
-            ent_min.grid(row=i+1, column=1, padx=2, pady=1)
-            ent_max.grid(row=i+1, column=2, padx=2)
-            ent_n.grid(row=i+1, column=3, padx=2)
-            self.ranges[key] = (ent_min, ent_max, ent_n)
 
         rand_f = tk.Frame(self.sidebar, bg="#ecf0f1")
         rand_f.pack(fill=tk.X, pady=(5, 5))
@@ -206,7 +215,10 @@ class AnalysisWindow(tk.Frame):
         self.ref_ori = tk.StringVar(value="Aucune")
         ttk.Combobox(ref_f, textvariable=self.ref_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
-        # --- MODÈLES CIBLES (Dynamique & Spacieux) ---
+        tk.Label(ref_f, text="Balayage Réf", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
+        self.ref_ranges = self.create_grid_ui(ref_f)
+
+        # --- MODÈLES CIBLES ---
         self.targets_container = tk.Frame(self.sidebar, bg="#ecf0f1")
         self.targets_container.pack(fill=tk.X, pady=5)
         
@@ -221,21 +233,6 @@ class AnalysisWindow(tk.Frame):
         # --- FILTRES DE RÉSULTATS (POST-RUN) ---
         self.targets_list_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer les Cibles", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         self.targets_list_frame.pack(fill=tk.X, pady=(0, 5))
-        self.target_configs = []
-
-        v_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
-        v_frame.pack(fill=tk.X, pady=5)
-        tk.Label(v_frame, text="V. Rés:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.v_res = tk.Entry(v_frame, width=5); self.v_res.insert(0, "3.0"); self.v_res.pack(side=tk.LEFT, padx=2)
-        tk.Label(v_frame, text="V. Arc:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.v_arc = tk.Entry(v_frame, width=5); self.v_arc.insert(0, "2.0"); self.v_arc.pack(side=tk.LEFT, padx=2)
-        
-        p_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
-        p_frame.pack(fill=tk.X, pady=(0, 5))
-        tk.Label(p_frame, text="Portion:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.portion_ent = tk.Entry(p_frame, width=5)
-        self.portion_ent.insert(0, "0.1")
-        self.portion_ent.pack(side=tk.LEFT, padx=2)
 
         tk.Button(self.sidebar, text="Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis).pack(fill=tk.X, pady=10)
 
@@ -247,10 +244,10 @@ class AnalysisWindow(tk.Frame):
         self.plot_type_var = tk.StringVar(value="Nuage de points")
         self.cb_type = ttk.Combobox(self.sidebar, textvariable=self.plot_type_var, values=["Nuage de points", "Histogramme (1D)", "Carte de chaleur (2D)"], state="readonly")
         self.cb_type.pack(fill=tk.X, pady=(0, 5))
-        self.cb_type.bind("<<ComboboxSelected>>", self.update_plot) # Nouvelle fonction
+        self.cb_type.bind("<<ComboboxSelected>>", self.update_plot)
         
         tk.Label(self.sidebar, text="Axe X :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.x_var = tk.StringVar(value="Mult. Dest. (EPA)")
+        self.x_var = tk.StringVar(value="Cible - Mult. Dest. (EPA)")
         self.cb_x = ttk.Combobox(self.sidebar, textvariable=self.x_var, values=plot_opts, state="readonly")
         self.cb_x.pack(fill=tk.X); self.cb_x.bind("<<ComboboxSelected>>", self.update_plot)
 
@@ -328,7 +325,7 @@ class AnalysisWindow(tk.Frame):
         header_f.pack(fill=tk.X, padx=5, pady=(2, 5))
 
         var = tk.BooleanVar(value=True)
-        tk.Checkbutton(header_f, text="Afficher sur le graphe", variable=var, bg="#ecf0f1", font=("Segoe UI", 8, "bold"), fg="#27ae60", command=self.update_plot).pack(side=tk.LEFT)
+        tk.Checkbutton(header_f, text="Afficher", variable=var, bg="#ecf0f1", font=("Segoe UI", 8, "bold"), fg="#27ae60", command=self.update_plot).pack(side=tk.LEFT)
 
         def remove_self():
             tgt_f.destroy()
@@ -357,9 +354,12 @@ class AnalysisWindow(tk.Frame):
         tk.Label(tgt_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         ori_var = tk.StringVar(value="Aucune")
         ttk.Combobox(tgt_f, textvariable=ori_var, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        
+        tk.Label(tgt_f, text="Balayage Cible", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
+        ranges = self.create_grid_ui(tgt_f)
 
         self.target_ui_rows.append({
-            'frame': tgt_f, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid
+            'frame': tgt_f, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid, 'ranges': ranges
         })
 
     def setup_bindings(self):
@@ -494,7 +494,7 @@ class AnalysisWindow(tk.Frame):
                 ffi_wrapper.fix_capacite_flow_oriente(reseau)
 
 
-    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, portion=1.0):
+    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, vitesse, portion=1.0):
         reseau = None
 
         if choix_algo == "EPANET":
@@ -516,22 +516,38 @@ class AnalysisWindow(tk.Frame):
                     ffi_wrapper.fix_capacite_flow_calcule(reseau)
                 case "EPANET Partiel":
                     ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                    ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
                     ffi_wrapper.fix_capacite_flow_calcule_portion(reseau, portion)
                 case "Vitesse Max":
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                    ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
                 case _:
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
+                    ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
                     self.compute_algo(reseau, choix_capa, p_src, p_dem)
                     ffi_wrapper.fix_capacite_flow_calcule(reseau)
                     ffi_wrapper.nullifier_flow(reseau)
 
-            self.compute_orientation(reseau, choix_ori, p_src, p_dem)
+            self.compute_orientation(reseau, choix_ori, p_src, p_dem, portion)
             self.compute_algo(reseau, choix_algo, p_src, p_dem)
             if choix_dem == "EPANET":
                 ffi_wrapper.get_epanet_fulldemande(self.projet, reseau)
 
         return reseau
+
+    def _extract_grid(self, ranges):
+        def safe_float(v, default=1.0):
+            try: return float(v.get())
+            except: return default
+        def safe_int(v, default=1):
+            try: return max(1, int(v.get()))
+            except: return default
+
+        return {
+            "m_src": np.linspace(safe_float(ranges["m_src"][0]), safe_float(ranges["m_src"][1]), safe_int(ranges["m_src"][2])),
+            "m_epa": np.linspace(safe_float(ranges["m_dst_epa"][0]), safe_float(ranges["m_dst_epa"][1]), safe_int(ranges["m_dst_epa"][2])),
+            "m_dst": np.linspace(safe_float(ranges["m_dst"][0]), safe_float(ranges["m_dst"][1]), safe_int(ranges["m_dst"][2])),
+            "vitesse": np.linspace(safe_float(ranges["vitesse"][0], 2.0), safe_float(ranges["vitesse"][1], 2.0), safe_int(ranges["vitesse"][2])),
+            "portion": np.linspace(safe_float(ranges["portion"][0], 1.0), safe_float(ranges["portion"][1], 1.0), safe_int(ranges["portion"][2]))
+        }
 
     def _extract_analysis_params(self):
         self.target_configs = []
@@ -541,43 +557,35 @@ class AnalysisWindow(tk.Frame):
                 "uid": row['uid'], "name": name,
                 "algo": row['algo'].get(), "ori": row['ori'].get(),
                 "capa": row['capa'].get(), "dem": row['dem'].get(),
-                "var": row['var']
+                "var": row['var'],
+                "grid": self._extract_grid(row['ranges'])
             })
-
-        # Grilles de balayage
-        src_min, src_max, src_n = map(float, [self.ranges["m_src"][i].get() for i in range(3)])
-        epa_min, epa_max, epa_n = map(float, [self.ranges["m_dst_epa"][i].get() for i in range(3)])
-        dst_min, dst_max, dst_n = map(float, [self.ranges["m_dst"][i].get() for i in range(3)])
 
         try: nb_rand = int(self.nb_rand_entry.get())
         except ValueError: nb_rand = 0
 
         return {
-            "v_res": float(self.v_res.get()),
-            "v_arc": float(self.v_arc.get()),
-            "portion": float(self.portion_ent.get()),
             "ref_algo": self.ref_algo.get(),
             "ref_capa": self.ref_capa.get(),
             "ref_ori": self.ref_ori.get(),
             "ref_dem": self.ref_dem.get(),
-            "arr_src": np.linspace(src_min, src_max, int(src_n)),
-            "arr_epa": np.linspace(epa_min, epa_max, int(epa_n)),
-            "arr_dst": np.linspace(dst_min, dst_max, int(dst_n)),
+            "ref_grid": self._extract_grid(self.ref_ranges),
             "seeds": [None] if nb_rand <= 0 else [random.randint(1, 9999999) for _ in range(nb_rand)],
             "targets": self.target_configs
         }
 
-    def _compute_metrics(self, graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, m_src, m_epa, m_dst):
-        """Sous-fonction : Calcule les métriques de comparaison entre le graphe de référence et cible."""
+    def _compute_metrics(self, graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, 
+                         r_src, r_epa, r_dst, r_v, r_p, 
+                         t_src, t_epa, t_dst, t_v, t_p):
         wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
         wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
         sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
         sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
         jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
         
-        arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / analyse_tools.get_n_arcs_no(graph_ref)) * 100
+        arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref))) * 100
         arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
-        arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / analyse_tools.get_n_arcs_no(graph_tgt)) * 100
+        arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt))) * 100
         arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
         
         nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
@@ -587,12 +595,13 @@ class AnalysisWindow(tk.Frame):
         return {
             "filepath": filepath, "filename": filename, "seed": seed_val,
             "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
-            "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
+            "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p,
+            "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p,
             "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
             "jaccard": jaccard_d,  
-            "arc_nul_ref": arcs_nul_ref.shape[0] / analyse_tools.get_n_arcs_no(graph_ref) * 100,
+            "arc_nul_ref": arcs_nul_ref.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
             "arc_non_nul_ref" : arcs_non_nul_ref, 
-            "arc_nul_cible": arcs_nul_tgt.shape[0] / analyse_tools.get_n_arcs_no(graph_tgt) * 100,
+            "arc_nul_cible": arcs_nul_tgt.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
             "arc_non_nul_cible": arcs_non_nul_tgt,
             "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
             "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
@@ -609,7 +618,11 @@ class AnalysisWindow(tk.Frame):
         params = self._extract_analysis_params()
         self.results = []
         
-        total_iters = len(self.loaded_files) * len(params['arr_src']) * len(params['arr_epa']) * len(params['arr_dst']) * len(params['seeds']) * len(params['targets'])
+        ref_grid = params['ref_grid']
+        ref_iters = len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
+        tgt_iters = sum([len(t['grid']["m_epa"]) * len(t['grid']["m_dst"]) * len(t['grid']["m_src"]) * len(t['grid']["vitesse"]) * len(t['grid']["portion"]) for t in params['targets']])
+        
+        total_iters = len(self.loaded_files) * len(params['seeds']) * ref_iters * tgt_iters
         current_iter = 0
 
         file_flags = {filepath: prepare_dataset.file_contains_elements(filepath) for filepath in self.loaded_files}
@@ -626,36 +639,55 @@ class AnalysisWindow(tk.Frame):
                         ffi_wrapper.set_random_seed(seed_val)
                         ffi_wrapper.randomise_demande(self.projet)
 
-                    for m_epa in params['arr_epa']:
-                        ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
+                    for r_epa in ref_grid["m_epa"]:
+                        # Appliquer le multiplicateur EPANET pour la Réf
+                        ffi_wrapper.modif_multiplicateur(self.projet, max(r_epa, 1e-6))
 
-                        for m_dst in params['arr_dst']:
-                            for m_src in params['arr_src']:
+                        for r_dst in ref_grid["m_dst"]:
+                            for r_src in ref_grid["m_src"]:
+                                for r_v in ref_grid["vitesse"]:
+                                    for r_p in ref_grid["portion"]:
 
-                                if params['ref_algo'] == "EPANET":
-                                    graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, 1.0, 1.0, params['portion'])
-                                else:
-                                    graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], m_src, m_dst, params['v_res'], params['v_arc'], params['portion'])
+                                        if params['ref_algo'] == "EPANET":
+                                            graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, r_v, r_p)
+                                        else:
+                                            graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], r_src, r_dst, r_v, r_p)
 
-                                for tgt in params['targets']:
-                                    current_iter += 1
-                                    self.status_label.config(text=f"Calcul : {current_iter}/{total_iters} ...")
-                                    self.update_idletasks()
+                                        for tgt in params['targets']:
+                                            t_grid = tgt['grid']
+                                            for t_epa in t_grid["m_epa"]:
+                                                # Appliquer le multiplicateur EPANET spécifique à la cible
+                                                # (ratio par rapport à ce qui est déjà appliqué)
+                                                ratio = max(t_epa, 1e-6) / max(r_epa, 1e-6)
+                                                ffi_wrapper.modif_multiplicateur(self.projet, ratio)
 
-                                    if tgt['algo'] == "EPANET":
-                                        graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, 1.0, 1.0, params['portion'])
-                                    else:
-                                        graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], m_src, m_dst, params['v_res'], params['v_arc'], params['portion'])
+                                                for t_dst in t_grid["m_dst"]:
+                                                    for t_src in t_grid["m_src"]:
+                                                        for t_v in t_grid["vitesse"]:
+                                                            for t_p in t_grid["portion"]:
+                                                                current_iter += 1
+                                                                self.status_label.config(text=f"Calcul : {current_iter}/{total_iters} ...")
+                                                                self.update_idletasks()
 
-                                    metrics = self._compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, m_src, m_epa, m_dst)
-                                    self.results.append(metrics)
+                                                                if tgt['algo'] == "EPANET":
+                                                                    graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, t_v, t_p)
+                                                                else:
+                                                                    graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], t_src, t_dst, t_v, t_p)
 
-                                    ffi_wrapper.free_graph(graph_tgt)
+                                                                metrics = self._compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, 
+                                                                                                r_src, r_epa, r_dst, r_v, r_p, 
+                                                                                                t_src, t_epa, t_dst, t_v, t_p)
+                                                                self.results.append(metrics)
 
-                                ffi_wrapper.free_graph(graph_ref)
+                                                                ffi_wrapper.free_graph(graph_tgt)
 
-                        if m_epa != 0.0:
-                            ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / m_epa)
+                                                # Revenir au multiplicateur de Référence
+                                                ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / ratio)
+
+                                        ffi_wrapper.free_graph(graph_ref)
+
+                        # Annuler la modification du multiplicateur EPANET de référence
+                        ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / max(r_epa, 1e-6))
 
                     ffi_wrapper.free_project(self.projet)
                     self.projet = None
@@ -853,10 +885,13 @@ class AnalysisWindow(tk.Frame):
 
         res = artist.custom_data[ind]
 
-        msg = f"Fichier : {res['filename']}\nCible : {res['target_name']}\n\nVoulez-vous visualiser ce scénario en détail ?\n\nMult. Demande (EPANET) : {res['m_dst_epa']:.2f}\nMult. Source : {res['m_src']:.2f}\nMult. Dest (Algo) : {res['m_dst']:.2f}"
-        if res['seed'] is not None: msg += f"\nSeed : {res['seed']}"
+        msg = f"Fichier : {res['filename']}\nCible : {res['target_name']}\n\n"
+        msg += f"Paramètres Réf:\nSrc: {res['ref_m_src']:.2f} | Dst(EPA): {res['ref_m_epa']:.2f} | Dst(A): {res['ref_m_dst']:.2f} | Vit: {res['ref_vitesse']:.2f} | Por: {res['ref_portion']:.2f}\n\n"
+        msg += f"Paramètres Cible:\nSrc: {res['tgt_m_src']:.2f} | Dst(EPA): {res['tgt_m_epa']:.2f} | Dst(A): {res['tgt_m_dst']:.2f} | Vit: {res['tgt_vitesse']:.2f} | Por: {res['tgt_portion']:.2f}"
         
-        if not messagebox.askyesno("Visualisation Croisée", msg):
+        if res['seed'] is not None: msg += f"\n\nSeed : {res['seed']}"
+        
+        if not messagebox.askyesno("Visualisation Croisée", msg + "\n\nVoulez-vous visualiser ce scénario en détail ?"):
             return
 
         from src.interface.visualisation import InternalWindow
@@ -874,17 +909,17 @@ class AnalysisWindow(tk.Frame):
             win.dem_var.set(tgt['dem'])
 
             win.inputs["Mult. Demande"].delete(0, tk.END)
-            win.inputs["Mult. Demande"].insert(0, str(res["m_dst_epa"]))
+            win.inputs["Mult. Demande"].insert(0, str(res["tgt_m_epa"]))
             win.inputs["Vit. Rés (m/s)"].delete(0, tk.END)
-            win.inputs["Vit. Rés (m/s)"].insert(0, self.v_res.get())
+            win.inputs["Vit. Rés (m/s)"].insert(0, str(res["tgt_vitesse"]))
             win.inputs["Vit. Arcs (m/s)"].delete(0, tk.END)
-            win.inputs["Vit. Arcs (m/s)"].insert(0, self.v_arc.get())
+            win.inputs["Vit. Arcs (m/s)"].insert(0, str(res["tgt_vitesse"]))
             win.inputs["Prop. Source"].delete(0, tk.END)
-            win.inputs["Prop. Source"].insert(0, str(res["m_src"]))
+            win.inputs["Prop. Source"].insert(0, str(res["tgt_m_src"]))
             win.inputs["Prop. Demande"].delete(0, tk.END)
-            win.inputs["Prop. Demande"].insert(0, str(res["m_dst"]))
+            win.inputs["Prop. Demande"].insert(0, str(res["tgt_m_dst"]))
             win.inputs["Portion"].delete(0, tk.END)
-            win.inputs["Portion"].insert(0, self.portion_ent.get())
+            win.inputs["Portion"].insert(0, str(res["tgt_portion"]))
 
             if res['seed'] is not None:
                 win.randomise_var.set(True)
@@ -897,3 +932,4 @@ class AnalysisWindow(tk.Frame):
             return win
 
         win_tgt = spawn_visualizer(f"Cible: {res['target_name']}", res['filepath'])
+        
