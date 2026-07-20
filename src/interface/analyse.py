@@ -26,7 +26,8 @@ class AnalysisWindow(tk.Frame):
         self.projet = None
         self.loaded_files = []
         self.results = []
-        self.file_vars = {}  # Pour stocker les variables des Checkbuttons des fichiers
+        self.file_vars = {}  
+        self.rand_vars = {}
 
         self.prep_dir = os.path.join(os.getcwd(), "prepared_datasets")
         os.makedirs(self.prep_dir, exist_ok=True)
@@ -141,7 +142,6 @@ class AnalysisWindow(tk.Frame):
         self.btn_load_dir = tk.Button(btn_frame, text="Ajouter & Préparer Dossier", command=self.load_directory, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold"))
         self.btn_load_dir.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
 
-        # Remplacement de la Listbox par une frame contenant des Checkbuttons
         self.files_frame = tk.Frame(self.sidebar, bg="white", relief="sunken", bd=1)
         self.files_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -254,6 +254,9 @@ class AnalysisWindow(tk.Frame):
         # --- FILTRES DE RÉSULTATS (POST-RUN) ---
         self.targets_list_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer les Cibles", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         self.targets_list_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.rand_filter_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer Randomisations", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        self.rand_filter_frame.pack(fill=tk.X, pady=(0, 5))
 
         self.run_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
         self.run_frame.pack(fill=tk.X, pady=10)
@@ -377,6 +380,10 @@ class AnalysisWindow(tk.Frame):
 
     def reset_analysis(self):
         self.results = []
+        for widget in self.rand_filter_frame.winfo_children():
+            widget.destroy()
+        self.rand_vars.clear()
+        
         self.freeze_ui(False)
         self.update_plot()
         self.status_label.config(text="Analyse réinitialisée. Prêt pour de nouvelles modifications.")
@@ -771,7 +778,6 @@ class AnalysisWindow(tk.Frame):
 
                                                                 ffi_wrapper.free_graph(graph_tgt)
 
-                                                # Revenir au multiplicateur de Référence
                                                 ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / ratio)
 
                                         ffi_wrapper.free_graph(graph_ref)
@@ -780,6 +786,17 @@ class AnalysisWindow(tk.Frame):
 
                     ffi_wrapper.free_project(self.projet)
                     self.projet = None
+
+            unique_rands = list(set([r.get('rand_type', 'Aucune') for r in self.results]))
+            for widget in self.rand_filter_frame.winfo_children():
+                widget.destroy()
+            self.rand_vars.clear()
+            
+            for r_type in sorted(unique_rands):
+                var = tk.BooleanVar(value=True)
+                self.rand_vars[r_type] = var
+                cb = tk.Checkbutton(self.rand_filter_frame, text=r_type, variable=var, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot)
+                cb.pack(fill=tk.X, padx=5)
 
             self.status_label.config(text=f"Analyse terminée ({total_iters} simulations).")
             self.freeze_ui(True)
@@ -816,7 +833,12 @@ class AnalysisWindow(tk.Frame):
             min_res, max_res = 0, 999999
 
         for r in self.results:
+            # Vérifier si le fichier est coché dans la liste des Checkbuttons
             if r['filepath'] in self.file_vars and not self.file_vars[r['filepath']].get():
+                continue
+
+            r_type = r.get('rand_type', 'Aucune')
+            if r_type in self.rand_vars and not self.rand_vars[r_type].get():
                 continue
 
             flags = r['flags']
