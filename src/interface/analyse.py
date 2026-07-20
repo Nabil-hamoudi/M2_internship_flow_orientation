@@ -26,6 +26,7 @@ class AnalysisWindow(tk.Frame):
         self.projet = None
         self.loaded_files = []
         self.results = []
+        self.file_vars = {}  # Pour stocker les variables des Checkbuttons des fichiers
 
         self.prep_dir = os.path.join(os.getcwd(), "prepared_datasets")
         os.makedirs(self.prep_dir, exist_ok=True)
@@ -134,20 +135,24 @@ class AnalysisWindow(tk.Frame):
 
         btn_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
         btn_frame.pack(fill=tk.X, pady=(0, 5))
-        tk.Button(btn_frame, text="Ajouter & Préparer Fichier(s)", command=self.load_files, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        tk.Button(btn_frame, text="Ajouter & Préparer Dossier", command=self.load_directory, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold")).pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
+        self.btn_load_files = tk.Button(btn_frame, text="Ajouter & Préparer Fichier(s)", command=self.load_files, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold"))
+        self.btn_load_files.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        
+        self.btn_load_dir = tk.Button(btn_frame, text="Ajouter & Préparer Dossier", command=self.load_directory, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold"))
+        self.btn_load_dir.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
 
-        self.files_listbox = tk.Listbox(self.sidebar, height=3, bg="white", font=("Segoe UI", 7))
-        self.files_listbox.pack(fill=tk.X, pady=(0, 5))
+        # Remplacement de la Listbox par une frame contenant des Checkbuttons
+        self.files_frame = tk.Frame(self.sidebar, bg="white", relief="sunken", bd=1)
+        self.files_frame.pack(fill=tk.X, pady=(0, 5))
 
-        hyd_f = tk.LabelFrame(self.sidebar, text="Préparation Hydraulique (EPANET)", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
-        hyd_f.pack(fill=tk.X, pady=(0, 10))
+        self.hyd_f = tk.LabelFrame(self.sidebar, text="Préparation Hydraulique (EPANET)", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        self.hyd_f.pack(fill=tk.X, pady=(0, 10))
 
         self.sim_mode = tk.StringVar(value="PDA")
-        tk.Radiobutton(hyd_f, text="Mode PDA", variable=self.sim_mode, value="PDA", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
-        tk.Radiobutton(hyd_f, text="Mode DDA", variable=self.sim_mode, value="DDA", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+        tk.Radiobutton(self.hyd_f, text="Mode PDA", variable=self.sim_mode, value="PDA", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+        tk.Radiobutton(self.hyd_f, text="Mode DDA", variable=self.sim_mode, value="DDA", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
 
-        param_f = tk.Frame(hyd_f, bg="#ecf0f1")
+        param_f = tk.Frame(self.hyd_f, bg="#ecf0f1")
         param_f.pack(fill=tk.X, pady=2, padx=5)
 
         tk.Label(param_f, text="P. Min:", bg="#ecf0f1", font=("Segoe UI", 7)).grid(row=0, column=0)
@@ -188,14 +193,14 @@ class AnalysisWindow(tk.Frame):
         self.min_res_ent.bind("<KeyRelease>", self.update_plot)
         self.max_res_ent.bind("<KeyRelease>", self.update_plot)
 
-        rand_f = tk.LabelFrame(self.sidebar, text="Scénarios de Randomisation", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
-        rand_f.pack(fill=tk.X, pady=(5, 5))
+        self.rand_f = tk.LabelFrame(self.sidebar, text="Scénarios de Randomisation", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        self.rand_f.pack(fill=tk.X, pady=(5, 5))
 
         self.run_base_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(rand_f, text="Fichier Base (Aucune)", variable=self.run_base_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+        tk.Checkbutton(self.rand_f, text="Fichier Base (Aucune)", variable=self.run_base_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
 
         self.run_all_one_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(rand_f, text="Dems = 1 (Toutes à 1)", variable=self.run_all_one_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+        tk.Checkbutton(self.rand_f, text="Dems = 1 (Toutes à 1)", variable=self.run_all_one_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
 
         def make_rand_entry(parent, label, default="0"):
             f = tk.Frame(parent, bg="#ecf0f1")
@@ -206,32 +211,32 @@ class AnalysisWindow(tk.Frame):
             ent.pack(side=tk.RIGHT)
             return ent
 
-        self.nb_rand_uni = make_rand_entry(rand_f, "Nb. Uniforme :")
-        self.nb_rand_norm = make_rand_entry(rand_f, "Nb. Normale :")
-        self.nb_rand_exp = make_rand_entry(rand_f, "Nb. Exponentielle :")
+        self.nb_rand_uni = make_rand_entry(self.rand_f, "Nb. Uniforme :")
+        self.nb_rand_norm = make_rand_entry(self.rand_f, "Nb. Normale :")
+        self.nb_rand_exp = make_rand_entry(self.rand_f, "Nb. Exponentielle :")
 
         # --- MODÈLE RÉFÉRENCE ---
-        ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
-        ref_f.pack(fill=tk.X, pady=5)
+        self.ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        self.ref_f.pack(fill=tk.X, pady=5)
         
-        tk.Label(ref_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(self.ref_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_algo = tk.StringVar(value="EPANET")
-        ttk.Combobox(ref_f, textvariable=self.ref_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(self.ref_f, textvariable=self.ref_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
-        tk.Label(ref_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(self.ref_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_dem = tk.StringVar(value="Uniforme")
-        ttk.Combobox(ref_f, textvariable=self.ref_dem, values=DEMANDE, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(self.ref_f, textvariable=self.ref_dem, values=DEMANDE, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
-        tk.Label(ref_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(self.ref_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_capa = tk.StringVar(value="Vitesse Max")
-        ttk.Combobox(ref_f, textvariable=self.ref_capa, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(self.ref_f, textvariable=self.ref_capa, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
-        tk.Label(ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(self.ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_ori = tk.StringVar(value="Aucune")
-        ttk.Combobox(ref_f, textvariable=self.ref_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(self.ref_f, textvariable=self.ref_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
-        tk.Label(ref_f, text="Balayage Réf", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
-        self.ref_ranges = self.create_grid_ui(ref_f)
+        tk.Label(self.ref_f, text="Balayage Réf", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
+        self.ref_ranges = self.create_grid_ui(self.ref_f)
 
         # --- MODÈLES CIBLES ---
         self.targets_container = tk.Frame(self.sidebar, bg="#ecf0f1")
@@ -241,7 +246,8 @@ class AnalysisWindow(tk.Frame):
         self.target_ui_rows = []
         self.target_configs = []
 
-        tk.Button(self.sidebar, text="➕ Ajouter un Modèle Cible", bg="#f39c12", font=("Segoe UI", 8, "bold"), command=self.add_target_ui).pack(fill=tk.X, pady=(0, 5))
+        self.btn_add_target = tk.Button(self.sidebar, text="➕ Ajouter un Modèle Cible", bg="#f39c12", font=("Segoe UI", 8, "bold"), command=self.add_target_ui)
+        self.btn_add_target.pack(fill=tk.X, pady=(0, 5))
         
         self.add_target_ui()
 
@@ -249,7 +255,13 @@ class AnalysisWindow(tk.Frame):
         self.targets_list_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer les Cibles", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         self.targets_list_frame.pack(fill=tk.X, pady=(0, 5))
 
-        tk.Button(self.sidebar, text="Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis).pack(fill=tk.X, pady=10)
+        self.run_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
+        self.run_frame.pack(fill=tk.X, pady=10)
+
+        self.btn_run = tk.Button(self.run_frame, text="Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis)
+        self.btn_run.pack(fill=tk.X, pady=(0, 5))
+
+        self.btn_reset = tk.Button(self.run_frame, text="Réinitialiser & Déverrouiller", bg="#e74c3c", fg="white", font=("Segoe UI", 9, "bold"), command=self.reset_analysis)
 
         # --- TRACÉ MATPLOTLIB ---
         tk.Label(self.sidebar, text="Tracé du Graphe", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
@@ -329,6 +341,46 @@ class AnalysisWindow(tk.Frame):
         self.grip = tk.Label(self.status_bar, text="◢", bg="#bdc3c7", fg="#7f8c8d", cursor="bottom_right_corner")
         self.grip.pack(side=tk.RIGHT, anchor="se", padx=2)
 
+    def _set_state(self, widget, freeze):
+        state = tk.DISABLED if freeze else tk.NORMAL
+        
+        if isinstance(widget, ttk.Combobox):
+            widget.configure(state=tk.DISABLED if freeze else "readonly")
+        elif isinstance(widget, (tk.Entry, tk.Button, tk.Radiobutton, tk.Checkbutton)):
+            widget.configure(state=state)
+            
+        for child in widget.winfo_children():
+            self._set_state(child, freeze)
+
+    def freeze_ui(self, freeze=True):
+        state = tk.DISABLED if freeze else tk.NORMAL
+        
+        self.btn_load_files.config(state=state)
+        self.btn_load_dir.config(state=state)
+        self.btn_run.config(state=state)
+        self.btn_add_target.config(state=state)
+        
+        if freeze:
+            self.btn_reset.pack(fill=tk.X, pady=(0, 5))
+        else:
+            self.btn_reset.pack_forget()
+
+        self._set_state(self.hyd_f, freeze)
+        self._set_state(self.rand_f, freeze)
+        self._set_state(self.ref_f, freeze)
+
+        for row in self.target_ui_rows:
+            row['btn_delete'].config(state=state)
+            for child in row['frame'].winfo_children():
+                if child != row['header_f']:
+                    self._set_state(child, freeze)
+
+    def reset_analysis(self):
+        self.results = []
+        self.freeze_ui(False)
+        self.update_plot()
+        self.status_label.config(text="Analyse réinitialisée. Prêt pour de nouvelles modifications.")
+
     def add_target_ui(self):
         self.target_counter += 1
         current_uid = self.target_counter
@@ -352,7 +404,8 @@ class AnalysisWindow(tk.Frame):
             for i, r in enumerate(self.target_ui_rows):
                 r['frame'].config(text=f"Modèle Cible {i+1}")
 
-        tk.Button(header_f, text="❌", fg="red", bg="#ecf0f1", bd=0, font=("Segoe UI", 8), command=remove_self).pack(side=tk.RIGHT)
+        btn_del = tk.Button(header_f, text="❌", fg="red", bg="#ecf0f1", bd=0, font=("Segoe UI", 8), command=remove_self)
+        btn_del.pack(side=tk.RIGHT)
 
         tk.Label(tgt_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         algo_var = tk.StringVar(value="Edmonds-Karp")
@@ -374,7 +427,7 @@ class AnalysisWindow(tk.Frame):
         ranges = self.create_grid_ui(tgt_f)
 
         self.target_ui_rows.append({
-            'frame': tgt_f, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid, 'ranges': ranges
+            'frame': tgt_f, 'header_f': header_f, 'btn_delete': btn_del, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid, 'ranges': ranges
         })
 
     def setup_bindings(self):
@@ -433,7 +486,6 @@ class AnalysisWindow(tk.Frame):
             wn = prepare_dataset.open_file_epa_int(p)
             if wn:
                 prepare_dataset.convertir_unites(wn, 'LPS')
-
                 prepare_dataset.change_mode(wn, mode, p_min, p_req, p_exp)
 
                 base_name = os.path.basename(p)
@@ -443,7 +495,12 @@ class AnalysisWindow(tk.Frame):
                 if prepare_dataset.write_file(wn, dest_path):
                     if dest_path not in self.loaded_files:
                         self.loaded_files.append(dest_path)
-                        self.files_listbox.insert(tk.END, unique_name)
+                        
+                        var = tk.BooleanVar(value=True)
+                        self.file_vars[dest_path] = var
+                        cb = tk.Checkbutton(self.files_frame, text=unique_name, variable=var, bg="white", font=("Segoe UI", 7), anchor="w", command=self.update_plot)
+                        cb.pack(fill=tk.X)
+                        
                         count += 1
 
         self.title_label.config(text=f"|  Analyse : {len(self.loaded_files)} fichier(s)")
@@ -493,7 +550,6 @@ class AnalysisWindow(tk.Frame):
                 ffi_wrapper.compute_flow_edmonds_karp(reseau)
                 ffi_wrapper.delete_source_destination(reseau)
 
-
     def compute_orientation(self, reseau, choix_ori, p_src, p_dem, portion=1.0):
         match (choix_ori):
             case "EPANET":
@@ -507,7 +563,6 @@ class AnalysisWindow(tk.Frame):
             case _:
                 self.compute_algo(reseau, choix_ori, p_src, p_dem)
                 ffi_wrapper.fix_capacite_flow_oriente(reseau)
-
 
     def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, vitesse, portion=1.0):
         reseau = None
@@ -727,6 +782,7 @@ class AnalysisWindow(tk.Frame):
                     self.projet = None
 
             self.status_label.config(text=f"Analyse terminée ({total_iters} simulations).")
+            self.freeze_ui(True)
             self.update_plot()
 
         except Exception as e:
@@ -760,6 +816,9 @@ class AnalysisWindow(tk.Frame):
             min_res, max_res = 0, 999999
 
         for r in self.results:
+            if r['filepath'] in self.file_vars and not self.file_vars[r['filepath']].get():
+                continue
+
             flags = r['flags']
             
             tgt_config = next((c for c in self.target_configs if c['uid'] == r['target_uid']), None)
@@ -967,4 +1026,3 @@ class AnalysisWindow(tk.Frame):
             return win
 
         win_tgt = spawn_visualizer(f"Cible: {res['target_name']}", res['filepath'])
-        
