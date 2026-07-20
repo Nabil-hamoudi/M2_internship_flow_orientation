@@ -5,9 +5,7 @@ LIB_DIR		 = librairie
 EPANET_DIR	 = $(LIB_DIR)/EPANET_2_3_5_LINUX_x86_64
 CFLAGS		 = -O3 -Wall -I$(EPANET_DIR) -fPIC
 EXTERNAL_LDFLAGS = -L$(EPANET_DIR) -lepanet2 -lm -Wl,-rpath=$(EPANET_DIR)
-EXEC		 = epanet_exec
 LIB		 = $(LIB_DIR)/libreseau.so
-MAIN_C		 = $(SRC_DIR)/api.c
 SRC		 = $(SRC_DIR)/structure.c $(SRC_DIR)/algorithm_flow.c $(SRC_DIR)/epanet_parser.c
 HDR		 = $(SRC_DIR)/structure.h $(SRC_DIR)/algorithm_flow.h $(SRC_DIR)/epanet_parser.h
 MAIN_PY		 = main.py analyse.py
@@ -18,7 +16,7 @@ SRC_FILES	 = $(MAIN_PY) $(SRC_DIR)/ Makefile
 
 .PHONY: all build run clean zip build_python
 
-all: $(LIB_DIR) $(EPANET_DIR) $(LIB) build_python $(EXEC)
+all: $(LIB_DIR) $(EPANET_DIR) $(LIB) build_python
 
 build: clean all
 
@@ -38,12 +36,6 @@ $(LIB): $(OBJ)
 
 build_python: $(LIB)
 	$(PYTHON) $(CFFI)
-
-$(EXEC): $(LIB) $(MAIN_C)
-	$(CC) $(CFLAGS) -o $@ $(MAIN_C) -L$(LIB_DIR) -lreseau $(EXTERNAL_LDFLAGS) -Wl,-rpath,$(LIB_DIR)
-
-run: $(EXEC)
-	./$(EXEC) $(ARGS)
 
 zip: clean
 	zip -r $(ARCHIVE_NAME) $(SRC_FILES)
