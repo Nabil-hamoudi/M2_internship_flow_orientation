@@ -95,6 +95,17 @@ def create_epanet_project(input_file):
 def randomise_demande(p_projet):
     lib.randomise_demande(p_projet)
 
+def randomise_demande_normale(p_projet):
+    lib.randomise_demande_normale(p_projet)
+
+def randomise_demande_exponentielle(p_projet):
+    lib.randomise_demande_exponentielle(p_projet)
+
+def set_demande_un(p_projet):
+    lib.set_demande_un(p_projet)
+
+def set_time_step(p_projet, pastemp):
+    lib.set_time_step(p_projet, pastemp)
 
 def modif_multiplicateur(p_projet, mult):
     lib.modif_multiplicateur(p_projet, mult)

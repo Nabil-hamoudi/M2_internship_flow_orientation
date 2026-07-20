@@ -188,12 +188,27 @@ class AnalysisWindow(tk.Frame):
         self.min_res_ent.bind("<KeyRelease>", self.update_plot)
         self.max_res_ent.bind("<KeyRelease>", self.update_plot)
 
-        rand_f = tk.Frame(self.sidebar, bg="#ecf0f1")
+        rand_f = tk.LabelFrame(self.sidebar, text="Scénarios de Randomisation", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         rand_f.pack(fill=tk.X, pady=(5, 5))
-        tk.Label(rand_f, text="Nb Randomisations (0=Désactivé):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.nb_rand_entry = tk.Entry(rand_f, width=5)
-        self.nb_rand_entry.insert(0, "0")
-        self.nb_rand_entry.pack(side=tk.RIGHT, padx=5)
+
+        self.run_base_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(rand_f, text="Fichier Base (Aucune)", variable=self.run_base_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+
+        self.run_all_one_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(rand_f, text="Dems = 1 (Toutes à 1)", variable=self.run_all_one_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+
+        def make_rand_entry(parent, label, default="0"):
+            f = tk.Frame(parent, bg="#ecf0f1")
+            f.pack(fill=tk.X, padx=5, pady=2)
+            tk.Label(f, text=label, bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+            ent = tk.Entry(f, width=5)
+            ent.insert(0, default)
+            ent.pack(side=tk.RIGHT)
+            return ent
+
+        self.nb_rand_uni = make_rand_entry(rand_f, "Nb. Uniforme :")
+        self.nb_rand_norm = make_rand_entry(rand_f, "Nb. Normale :")
+        self.nb_rand_exp = make_rand_entry(rand_f, "Nb. Exponentielle :")
 
         # --- MODÈLE RÉFÉRENCE ---
         ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
@@ -561,8 +576,24 @@ class AnalysisWindow(tk.Frame):
                 "grid": self._extract_grid(row['ranges'])
             })
 
-        try: nb_rand = int(self.nb_rand_entry.get())
-        except ValueError: nb_rand = 0
+        randomizations = []
+        if self.run_base_var.get():
+            randomizations.append(("Aucune", None))
+        if self.run_all_one_var.get():
+            randomizations.append(("Toutes à 1", None))
+            
+        def parse_nb(ent):
+            try: return max(0, int(ent.get()))
+            except ValueError: return 0
+
+        nb_uni = parse_nb(self.nb_rand_uni)
+        nb_norm = parse_nb(self.nb_rand_norm)
+        nb_exp = parse_nb(self.nb_rand_exp)
+
+        MAX_SEED = 4294967295
+        for _ in range(nb_uni): randomizations.append(("Uniforme", random.randint(1, MAX_SEED)))
+        for _ in range(nb_norm): randomizations.append(("Normale", random.randint(1, MAX_SEED)))
+        for _ in range(nb_exp): randomizations.append(("Exponentielle", random.randint(1, MAX_SEED)))
 
         return {
             "ref_algo": self.ref_algo.get(),
@@ -570,11 +601,11 @@ class AnalysisWindow(tk.Frame):
             "ref_ori": self.ref_ori.get(),
             "ref_dem": self.ref_dem.get(),
             "ref_grid": self._extract_grid(self.ref_ranges),
-            "seeds": [None] if nb_rand <= 0 else [random.randint(1, 9999999) for _ in range(nb_rand)],
+            "randomizations": randomizations,
             "targets": self.target_configs
         }
 
-    def _compute_metrics(self, graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, 
+    def _compute_metrics(self, graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
                          r_src, r_epa, r_dst, r_v, r_p, 
                          t_src, t_epa, t_dst, t_v, t_p):
         wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
@@ -593,7 +624,7 @@ class AnalysisWindow(tk.Frame):
         nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
 
         return {
-            "filepath": filepath, "filename": filename, "seed": seed_val,
+            "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
             "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
             "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p,
             "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p,
@@ -622,7 +653,7 @@ class AnalysisWindow(tk.Frame):
         ref_iters = len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
         tgt_iters = sum([len(t['grid']["m_epa"]) * len(t['grid']["m_dst"]) * len(t['grid']["m_src"]) * len(t['grid']["vitesse"]) * len(t['grid']["portion"]) for t in params['targets']])
         
-        total_iters = len(self.loaded_files) * len(params['seeds']) * ref_iters * tgt_iters
+        total_iters = len(self.loaded_files) * len(params['randomizations']) * ref_iters * tgt_iters
         current_iter = 0
 
         file_flags = {filepath: prepare_dataset.file_contains_elements(filepath) for filepath in self.loaded_files}
@@ -631,18 +662,24 @@ class AnalysisWindow(tk.Frame):
             for filepath in self.loaded_files:
                 filename = os.path.basename(filepath)
                 flags = file_flags[filepath]
-
-                for seed_val in params['seeds']:
+                print(filename)
+                for rand_type, seed_val in params['randomizations']:
                     self.projet = ffi_wrapper.create_epanet_project(filepath)
 
                     if seed_val is not None:
                         ffi_wrapper.set_random_seed(seed_val)
+                    
+                    if rand_type == "Uniforme":
                         ffi_wrapper.randomise_demande(self.projet)
+                    elif rand_type == "Normale":
+                        ffi_wrapper.randomise_demande_normale(self.projet)
+                    elif rand_type == "Exponentielle":
+                        ffi_wrapper.randomise_demande_exponentielle(self.projet)
+                    elif rand_type == "Toutes à 1":
+                        ffi_wrapper.set_demande_un(self.projet)
 
                     for r_epa in ref_grid["m_epa"]:
-                        # Appliquer le multiplicateur EPANET pour la Réf
                         ffi_wrapper.modif_multiplicateur(self.projet, max(r_epa, 1e-6))
-
                         for r_dst in ref_grid["m_dst"]:
                             for r_src in ref_grid["m_src"]:
                                 for r_v in ref_grid["vitesse"]:
@@ -656,8 +693,6 @@ class AnalysisWindow(tk.Frame):
                                         for tgt in params['targets']:
                                             t_grid = tgt['grid']
                                             for t_epa in t_grid["m_epa"]:
-                                                # Appliquer le multiplicateur EPANET spécifique à la cible
-                                                # (ratio par rapport à ce qui est déjà appliqué)
                                                 ratio = max(t_epa, 1e-6) / max(r_epa, 1e-6)
                                                 ffi_wrapper.modif_multiplicateur(self.projet, ratio)
 
@@ -674,7 +709,7 @@ class AnalysisWindow(tk.Frame):
                                                                 else:
                                                                     graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], t_src, t_dst, t_v, t_p)
 
-                                                                metrics = self._compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, seed_val, tgt, 
+                                                                metrics = self._compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
                                                                                                 r_src, r_epa, r_dst, r_v, r_p, 
                                                                                                 t_src, t_epa, t_dst, t_v, t_p)
                                                                 self.results.append(metrics)
@@ -686,7 +721,6 @@ class AnalysisWindow(tk.Frame):
 
                                         ffi_wrapper.free_graph(graph_ref)
 
-                        # Annuler la modification du multiplicateur EPANET de référence
                         ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / max(r_epa, 1e-6))
 
                     ffi_wrapper.free_project(self.projet)
@@ -889,7 +923,8 @@ class AnalysisWindow(tk.Frame):
         msg += f"Paramètres Réf:\nSrc: {res['ref_m_src']:.2f} | Dst(EPA): {res['ref_m_epa']:.2f} | Dst(A): {res['ref_m_dst']:.2f} | Vit: {res['ref_vitesse']:.2f} | Por: {res['ref_portion']:.2f}\n\n"
         msg += f"Paramètres Cible:\nSrc: {res['tgt_m_src']:.2f} | Dst(EPA): {res['tgt_m_epa']:.2f} | Dst(A): {res['tgt_m_dst']:.2f} | Vit: {res['tgt_vitesse']:.2f} | Por: {res['tgt_portion']:.2f}"
         
-        if res['seed'] is not None: msg += f"\n\nSeed : {res['seed']}"
+        msg += f"\n\nRandomisation : {res.get('rand_type', 'Aucune')}"
+        if res.get('seed') is not None: msg += f" | Seed : {res['seed']}"
         
         if not messagebox.askyesno("Visualisation Croisée", msg + "\n\nVoulez-vous visualiser ce scénario en détail ?"):
             return
@@ -921,8 +956,8 @@ class AnalysisWindow(tk.Frame):
             win.inputs["Portion"].delete(0, tk.END)
             win.inputs["Portion"].insert(0, str(res["tgt_portion"]))
 
-            if res['seed'] is not None:
-                win.randomise_var.set(True)
+            win.rand_type_var.set(res.get('rand_type', 'Aucune'))
+            if res.get('seed') is not None:
                 win.inputs["Seed (Optionnel)"].delete(0, tk.END)
                 win.inputs["Seed (Optionnel)"].insert(0, str(res['seed']))
             else:

@@ -147,7 +147,11 @@ class InternalWindow(tk.Frame):
             "Segoe UI", 9, "bold"), command=self.trigger_run).pack(fill=tk.X, pady=(10, 5))
         tk.Button(self.sidebar, text="Recentrer la vue", command=self.reset_view).pack(fill=tk.X)
 
+        tk.Label(self.sidebar, text="Randomisation Demandes :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
+        self.rand_type_var = tk.StringVar(value="Uniforme")
         self.randomise_var = tk.BooleanVar(value=False)
+        cb_rand = ttk.Combobox(self.sidebar, textvariable=self.rand_type_var, values=("Uniforme", "Normale", "Exponentielle", "Toutes à 1"), state="readonly")
+        cb_rand.pack(fill=tk.X, pady=(0, 5))
         tk.Checkbutton(self.sidebar, text="Randomiser Demandes", variable=self.randomise_var, bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
 
         res_frame = tk.LabelFrame(self.sidebar, text="Résultats", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
@@ -354,6 +358,9 @@ class InternalWindow(tk.Frame):
             if seed_str:
                 try:
                     seed_val = int(seed_str)
+                    if seed_val < 0 or seed_val > 4294967295:
+                        messagebox.showwarning("Attention", "La seed doit être comprise entre 0 et 4294967295.")
+                        return
                 except ValueError:
                     messagebox.showwarning("Attention", "La seed doit être un nombre entier.")
                     return
@@ -365,7 +372,22 @@ class InternalWindow(tk.Frame):
                     ffi_wrapper.free_project(self.projet)
                 self.projet = ffi_wrapper.create_epanet_project(self.current_filepath)
 
-            ffi_wrapper.set_random_seed(seed_val)
+            # Application de la Seed
+            if seed_val is not None:
+                ffi_wrapper.set_random_seed(seed_val)
+            
+            # Sélection de la modification de la demande
+            rand_type = self.rand_type_var.get()
+            if rand_type == "Uniforme":
+                ffi_wrapper.randomise_demande(self.projet)
+            elif rand_type == "Normale":
+                ffi_wrapper.randomise_demande_normale(self.projet)
+            elif rand_type == "Exponentielle":
+                ffi_wrapper.randomise_demande_exponentielle(self.projet)
+            elif rand_type == "Toutes à 1":
+                ffi_wrapper.set_demande_un(self.projet)
+
+
             if self.randomise_var.get():
                 ffi_wrapper.randomise_demande(self.projet)
 

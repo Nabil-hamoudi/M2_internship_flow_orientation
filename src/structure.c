@@ -27,7 +27,7 @@ const char* get_nom_type_arc(enum type_arcs type) {
 		case POMPE:	return "POMPE";
 		case VALVE_PRV:	return "VALVE_PRV";
 		case VALVE_PSV:	return "VALVE_PSV";
-		case VALVE_PBV:	return "VALVE_PRV";
+		case VALVE_PBV:	return "VALVE_PBV";
 		case VALVE_FCV:	return "VALVE_FCV";
 		case VALVE_TCV:	return "VALVE_TCV";
 		case VALVE_GPV:	return "VALVE_GPV";
@@ -54,7 +54,7 @@ const char* get_nom_type_epanet_analyse(enum demand_model type) {
 * Ici sommet_supplementaire et arcs_supplementaire corresponde a de la mêmoire allouee supplementaire aux sommets et arcs
 * nottament pour les algo utilisant des Super Source et Super Puit
 */
-struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_min, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp) {
+struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_arcs, nbr sommet_supplementaire, nbr arcs_supplementaire, flotant pression_min, flotant pression_requise, flotant exposant_pression, flotant demande_global, flotant demande_multiplier, flotant satifaisabilite, long temp, long pas_temp) {
 	struct graph G;
 	G.model = model;
 	G.nb_sommet = nb_sommet;
@@ -65,6 +65,7 @@ struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_ar
 	G.demande_multiplier = demande_multiplier;
 	G.satifaisabilite = satifaisabilite;
 	G.temp = temp;
+	G.pas_temp = pas_temp;
 	G.sommets = malloc((G.nb_sommet+sommet_supplementaire) * sizeof(struct sommet));
 	if (G.sommets == NULL && G.nb_sommet+sommet_supplementaire > 0) exit(ALLOCATION_FAIL_GRAPH);
 	G.arcs = malloc((G.nb_arcs+arcs_supplementaire) * sizeof(struct arc));
@@ -77,7 +78,7 @@ struct graph assignation_graph(enum demand_model model, nbr nb_sommet, nbr nb_ar
 *
 * Ici degree ajouter correspond a de la memoire supplementaire pour nottament pour l'ajout de la super source et super destination
 */
-struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant charge, flotant satisfaction, flotant demande, flotant coord_x, flotant coord_y) {
+struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree_ajouter, flotant elevation, flotant pression, flotant charge, flotant satisfaction, flotant demande, flotant emmission, flotant coord_x, flotant coord_y) {
 	struct sommet S;
 	struct coordonnee C;
 	S.type = type_s;
@@ -86,6 +87,7 @@ struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree
 	S.pression = pression;
 	S.charge = charge;
 	S.demande = demande;
+	S.emmission = emmission;
 	S.marque = 0;
 	S.satisfaction = satisfaction;
 	C.x = coord_x;
@@ -174,7 +176,9 @@ void compute_satisfaction_rate(struct graph* reseau) {
 
 	for (int i = 0; i < deg; i++) {
 		struct arc *a = reseau->sommet_destination->arcs[i].arc_entrant;
-		total_satisfaction += a->flow;
+		if (reseau->sommet_destination->arcs[i].arc_entrant->source->type != TANK) {
+			total_satisfaction += a->flow;
+		}
 		if (a->source->demande > 0.0) {
 			a->source->satisfaction = a->flow / a->source->demande;
 		} else {
