@@ -141,7 +141,7 @@ void set_demande_un(EN_Project* ph) {
     }
 }
 
-void randomise_demande_normale(EN_Project* ph) {
+void randomise_demande_normale(EN_Project* ph, double ecart_type) {
     nbr nb_nodes;
     double demand, demande_global = 0, demande_global_rand = 0;
     EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
@@ -158,7 +158,7 @@ void randomise_demande_normale(EN_Project* ph) {
             
             double z0 = sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
             
-            double facteur = 1.0 + 0.3 * z0;
+            double facteur = 1.0 + ecart_type * z0;
             if (facteur < 0.0) facteur = 0.0;
             
             EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * facteur);
@@ -179,7 +179,7 @@ void randomise_demande_normale(EN_Project* ph) {
     }
 }
 
-void randomise_demande_exponentielle(EN_Project* ph) {
+void randomise_demande_exponentielle(EN_Project* ph, double ecart_type) {
     nbr nb_nodes;
     double demand, demande_global = 0, demande_global_rand = 0;
     EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
@@ -193,7 +193,10 @@ void randomise_demande_exponentielle(EN_Project* ph) {
             double u = ((double) rand() / RAND_MAX);
             if (u == 0.0) u = 1e-9;
             
-            double facteur = -log(u);
+            double x = -log(u);
+            
+            double facteur = 1.0 + ecart_type * (x - 1.0);
+            if (facteur < 0.0) facteur = 0.0;
             
             EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * facteur);
             EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
@@ -212,7 +215,6 @@ void randomise_demande_exponentielle(EN_Project* ph) {
         }
     }
 }
-
 
 void set_time_step(EN_Project* ph, long pas_temp) {
     EN_settimeparam(*ph, EN_HYDSTEP, pas_temp);

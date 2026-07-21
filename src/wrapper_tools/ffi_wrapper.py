@@ -95,11 +95,11 @@ def create_epanet_project(input_file):
 def randomise_demande(p_projet):
     lib.randomise_demande(p_projet)
 
-def randomise_demande_normale(p_projet):
-    lib.randomise_demande_normale(p_projet)
+def randomise_demande_normale(p_projet, ecart_type=0.3):
+    lib.randomise_demande_normale(p_projet, ecart_type)
 
-def randomise_demande_exponentielle(p_projet):
-    lib.randomise_demande_exponentielle(p_projet)
+def randomise_demande_exponentielle(p_projet, ecart_type=1.0):
+    lib.randomise_demande_exponentielle(p_projet, ecart_type)
 
 def set_demande_un(p_projet):
     lib.set_demande_un(p_projet)

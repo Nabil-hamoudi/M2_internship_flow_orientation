@@ -23,9 +23,9 @@ void randomise_demande(EN_Project* ph);
 
 void set_demande_un(EN_Project* ph);
 
-void randomise_demande_normale(EN_Project* ph);
+void randomise_demande_normale(EN_Project* ph, double ecart_type);
 
-void randomise_demande_exponentielle(EN_Project* ph);
+void randomise_demande_exponentielle(EN_Project* ph, double ecart_type);
 
 void set_time_step(EN_Project* ph, long pas_temp);
 

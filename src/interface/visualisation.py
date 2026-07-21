@@ -1,27 +1,24 @@
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, colorchooser
-from src.wrapper_tools import ffi_wrapper
-from src.wrapper_tools import analyse_tools
 import numpy as np
 import matplotlib
-import tempfile
-from src.creation_dataset import prepare_dataset
-matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
-ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
-CAPACITE = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
-COULEUR_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
-COULEUR_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)")
-DEMANDE = ("Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
+from src.wrapper_tools import ffi_wrapper
+from src.backend.run import run_single_simulation
+from src.backend.extract_data import (
+    ALGORITHMES, ORIENTATIONS, CAPACITES, DEMANDES, 
+    COULEURS_SOMMET, COULEURS_ARC
+)
+
+matplotlib.use("TkAgg")
 
 class InternalWindow(tk.Frame):
     def __init__(self, parent, app_manager, title="Réseau"):
         super().__init__(parent, bg="white", bd=2, relief="groove")
         self.app_manager = app_manager
-        self.projet = None
         self.current_filepath = None
         self.nodes, self.edges = [], []
         self.scale = 1.0
@@ -64,12 +61,10 @@ class InternalWindow(tk.Frame):
         main_content = tk.Frame(self, bg="white")
         main_content.pack(fill=tk.BOTH, expand=True)
 
-# Conteneur principal
         self.sidebar_container = tk.Frame(main_content, width=240, bg="#ecf0f1", relief="solid", bd=1)
         self.sidebar_container.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar_container.pack_propagate(False)
 
-        # Canvas et Scrollbar
         self.canvas_side = tk.Canvas(self.sidebar_container, bg="#ecf0f1", highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self.sidebar_container, orient="vertical", command=self.canvas_side.yview)
         
@@ -78,11 +73,9 @@ class InternalWindow(tk.Frame):
         self.canvas_side.create_window((0, 0), window=self.sidebar, anchor="nw", width=220)
         self.canvas_side.configure(yscrollcommand=self.scrollbar.set)
 
-        # L'ORDRE EST CRUCIAL : On pack la scrollbar d'abord
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas_side.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Événements de la molette
         def _on_mousewheel(event):
             if event.num == 4 or getattr(event, 'delta', 0) > 0:
                 self.canvas_side.yview_scroll(-1, "units")
@@ -108,7 +101,7 @@ class InternalWindow(tk.Frame):
 
         tk.Label(self.sidebar, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w")
         self.capa_var = tk.StringVar(value="Vitesse Max")
-        ttk.Combobox(self.sidebar, textvariable=self.capa_var, values=CAPACITE, state="readonly").pack(fill=tk.X, pady=(0, 10))
+        ttk.Combobox(self.sidebar, textvariable=self.capa_var, values=CAPACITES, state="readonly").pack(fill=tk.X, pady=(0, 10))
 
         tk.Label(self.sidebar, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w")
         self.ori_var = tk.StringVar(value="Aucune")
@@ -116,35 +109,32 @@ class InternalWindow(tk.Frame):
 
         tk.Label(self.sidebar, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w")
         self.dem_var = tk.StringVar(value="Uniforme")
-        ttk.Combobox(self.sidebar, textvariable=self.dem_var, values=DEMANDE, state="readonly").pack(fill=tk.X, pady=(0, 10))
+        ttk.Combobox(self.sidebar, textvariable=self.dem_var, values=DEMANDES, state="readonly").pack(fill=tk.X, pady=(0, 10))
 
         self.inputs = {}
         fields = [("Mult. Demande", "1.0"), ("Vit. Rés (m/s)", "3.0"),
                   ("Vit. Arcs (m/s)", "2.0"), ("Prop. Source", "1.0"),
                   ("Prop. Demande", "1.0"), ("Portion", "0.1"), ("Seed (Optionnel)", "")]
         for label, default in fields:
-            tk.Label(self.sidebar, text=label+":", bg="#ecf0f1",
-                     font=("Segoe UI", 8)).pack(anchor="w")
-            ent = tk.Entry(self.sidebar, relief="flat",
-                           highlightthickness=1, justify="center")
+            tk.Label(self.sidebar, text=label+":", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+            ent = tk.Entry(self.sidebar, relief="flat", highlightthickness=1, justify="center")
             ent.insert(0, default)
             ent.pack(fill=tk.X, pady=(0, 5))
             self.inputs[label] = ent
             
         tk.Label(self.sidebar, text="Colorer les arcs par :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
         self.color_var = tk.StringVar(value="Aucune")
-        cb_color = ttk.Combobox(self.sidebar, textvariable=self.color_var, values=(COULEUR_ARC), state="readonly")
+        cb_color = ttk.Combobox(self.sidebar, textvariable=self.color_var, values=COULEURS_ARC, state="readonly")
         cb_color.pack(fill=tk.X, pady=(0, 5))
         cb_color.bind("<<ComboboxSelected>>", lambda e: self.draw_graph())
 
         tk.Label(self.sidebar, text="Colorer les sommets par :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
         self.color_node_var = tk.StringVar(value="Aucune")
-        cb_node_color = ttk.Combobox(self.sidebar, textvariable=self.color_node_var, values=(COULEUR_SOMMET), state="readonly")
+        cb_node_color = ttk.Combobox(self.sidebar, textvariable=self.color_node_var, values=COULEURS_SOMMET, state="readonly")
         cb_node_color.pack(fill=tk.X, pady=(0, 10))
         cb_node_color.bind("<<ComboboxSelected>>", lambda e: self.draw_graph())
 
-        tk.Button(self.sidebar, text="▶ SIMULER", bg="#27ae60", fg="white", font=(
-            "Segoe UI", 9, "bold"), command=self.trigger_run).pack(fill=tk.X, pady=(10, 5))
+        tk.Button(self.sidebar, text="▶ SIMULER", bg="#27ae60", fg="white", font=("Segoe UI", 9, "bold"), command=self.trigger_run).pack(fill=tk.X, pady=(10, 5))
         tk.Button(self.sidebar, text="Recentrer la vue", command=self.reset_view).pack(fill=tk.X)
 
         tk.Label(self.sidebar, text="Randomisation Demandes :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
@@ -179,7 +169,6 @@ class InternalWindow(tk.Frame):
         
         tk.Button(self.sidebar, text="Options des Couleurs", bg="#9b59b6", fg="white", font=("Segoe UI", 8, "bold"), command=self.open_color_settings).pack(fill=tk.X, pady=(5, 10))
 
-
     def setup_bindings(self):
         self.title_bar.bind("<ButtonPress-1>", self.start_drag_window)
         self.title_label.bind("<ButtonPress-1>", self.start_drag_window)
@@ -194,12 +183,92 @@ class InternalWindow(tk.Frame):
         self.canvas.bind("<Button-5>", self.on_zoom)
         self.canvas.bind("<Double-1>", self.on_canvas_click)
 
+    def load_file(self, filepath):
+        self.current_filepath = filepath
+        self.title_label.config(text=f"|  {os.path.basename(filepath)}")
+        try:
+            results = run_single_simulation(
+                filepath=filepath, choix_algo="EPANET", choix_ori="Aucune", 
+                choix_capa="Vitesse Max", choix_dem="Uniforme", 
+                p_src=1.0, p_dem=1.0, v_res=2.0, v_arc=2.0, mult_epa=1.0, portion=1.0
+            )
+            self.nodes = results["nodes"]
+            self.edges = results["edges"]
+            self.min_x, self.max_x, self.min_y, self.max_y = results["bounds"]
+            self.update_dashboard(results["metrics"])
+            self.status_label.config(text="Fichier chargé.")
+            self.reset_view()
+        except Exception as e:
+            messagebox.showerror("Erreur de chargement", str(e))
+
+    def trigger_run(self):
+        try:
+            v_res = float(self.inputs["Vit. Rés (m/s)"].get())
+            v_arc = float(self.inputs["Vit. Arcs (m/s)"].get())
+            p_src = float(self.inputs["Prop. Source"].get())
+            p_dem = float(self.inputs["Prop. Demande"].get())
+            choix_algo = self.algo_var.get()
+            choix_ori = self.ori_var.get()
+            choix_capa = self.capa_var.get()
+            choix_dem = self.dem_var.get()
+            mult = float(self.inputs["Mult. Demande"].get())
+            portion_val = float(self.inputs["Portion"].get())
+
+            seed_str = self.inputs["Seed (Optionnel)"].get().strip()
+            seed_val = None
+            if seed_str:
+                seed_val = int(seed_str)
+                if seed_val < 0 or seed_val > 4294967295:
+                    messagebox.showwarning("Attention", "La seed doit être comprise entre 0 et 4294967295.")
+                    return
+
+            rand_type = self.rand_type_var.get()
+            randomise_demande = self.randomise_var.get()
+
+            if not self.current_filepath:
+                return
+
+            self.status_label.config(text="Calcul en cours...")
+            self.update_idletasks()
+
+            results = run_single_simulation(
+                filepath=self.current_filepath, choix_algo=choix_algo, 
+                choix_ori=choix_ori, choix_capa=choix_capa, choix_dem=choix_dem, 
+                p_src=p_src, p_dem=p_dem, v_res=v_res, v_arc=v_arc, 
+                mult_epa=mult, portion=portion_val, rand_type=rand_type, 
+                randomise_demande=randomise_demande, seed=seed_val
+            )
+
+            self.nodes = results["nodes"]
+            self.edges = results["edges"]
+            self.min_x, self.max_x, self.min_y, self.max_y = results["bounds"]
+            
+            self.update_dashboard(results["metrics"])
+            self.draw_graph()
+
+            self.status_label.config(text=f"Simulation terminée ({choix_algo})")
+
+        except ValueError:
+            messagebox.showerror("Erreur", "Valeurs invalides.")
+        except Exception as e:
+            messagebox.showerror("Erreur CFFI", str(e))
+
+    def update_dashboard(self, metrics):
+        eff = metrics["efficacite"]
+        p_req = metrics["pression_requise"]
+        e_pres = metrics["exposant_pression"]
+        d_glob = metrics["demande_globale"]
+        
+        self.res_labels["eff"].config(text=f"Eff: {eff:f}%", fg="#27ae60" if eff > 99 else "#c0392b")
+        self.res_labels["pre"].config(text=f"P.Req: {p_req:f} m")
+        self.res_labels["exp"].config(text=f"Exp: {e_pres:f}")
+        self.res_labels["dem"].config(text=f"Dem: {d_glob:f} L/min")
+
     def toggle_sidebar(self):
         if self.sidebar_container.winfo_ismapped():
             self.sidebar_container.pack_forget()
             self.toggle_btn.config(text="▶ Options")
         else:
-            # On la replace simplement à gauche
             self.sidebar_container.pack(side=tk.LEFT, fill=tk.Y, before=self.canvas)
             self.toggle_btn.config(text="◀ Options")
 
@@ -213,8 +282,6 @@ class InternalWindow(tk.Frame):
         self.title_label.config(bg=color)
 
     def close_window(self):
-        if self.projet:
-            ffi_wrapper.free_project(self.projet)
         self.app_manager.remove_window(self)
         self.destroy()
 
@@ -253,221 +320,7 @@ class InternalWindow(tk.Frame):
     def world_to_screen(self, wx, wy):
         return (wx * self.scale) + self.pan_x, -(wy * self.scale) + self.pan_y
 
-    def update_dashboard(self, reseau):
-        eff, p_req, e_pres, d_glob = analyse_tools.get_efficacite(reseau)*100, analyse_tools.get_pression_requise(reseau), analyse_tools.get_exposant_pression(reseau), analyse_tools.get_demande_global(reseau)
-        self.res_labels["eff"].config(text=f"Eff: {eff:f}%", fg="#27ae60" if eff > 99 else "#c0392b")
-        self.res_labels["pre"].config(text=f"P.Req: {p_req:f} m")
-        self.res_labels["exp"].config(text=f"Exp: {e_pres:f}")
-        self.res_labels["dem"].config(text=f"Dem: {d_glob:f} L/min")
-
-    def load_file(self, filepath):
-        self.current_filepath = filepath
-        self.title_label.config(text=f"|  {filepath.split('/')[-1].split('\\')[-1]}")
-        self.projet = ffi_wrapper.create_epanet_project(filepath)
-        reseau = ffi_wrapper.import_epanet_graph(self.projet)
-        ffi_wrapper.nullifier_flow(reseau)
-        self.extract_data(reseau)
-        ffi_wrapper.free_graph(reseau)
-        self.status_label.config(text="Fichier chargé.")
-        self.reset_view()
-
-    def compute_algo(self, reseau, choix, m_src, m_dst):
-        match (choix):
-            case "Ford-Fulkerson":
-                ffi_wrapper.ajout_source_destination(reseau)
-                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-                ffi_wrapper.ajout_capacite_source(reseau, m_src)
-                ffi_wrapper.nullifier_flow(reseau)
-                ffi_wrapper.compute_flow_ford_fukerson(reseau)
-                ffi_wrapper.delete_source_destination(reseau)
-            case "Edmonds-Karp":
-                ffi_wrapper.ajout_source_destination(reseau)
-                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-                ffi_wrapper.ajout_capacite_source(reseau, m_src)
-                ffi_wrapper.nullifier_flow(reseau)
-                ffi_wrapper.compute_flow_edmonds_karp(reseau)
-                ffi_wrapper.delete_source_destination(reseau)
-
-    def compute_orientation(self, reseau, choix_ori, p_src, p_dem, portion=1.0):
-        match (choix_ori):
-            case "EPANET":
-                ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau)
-            case "EPANET Partiel":
-                ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                ffi_wrapper.fix_capacite_flow_oriente_portion(reseau, portion)
-            case "Aucune":
-                pass
-            case _:
-                self.compute_algo(reseau, choix_ori, p_src, p_dem)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau)
-
-    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa, portion=1.0):
-        ffi_wrapper.modif_multiplicateur(self.projet, mult_epa)
-        reseau = None
-        demandes_epanet = ["EPANET", "Normale", "Exponentielle", "Toutes à 1"]
-        
-        # Application de la distribution spécifique au modèle
-        if choix_dem == "Normale":
-            ffi_wrapper.randomise_demande_normale(self.projet)
-        elif choix_dem == "Exponentielle":
-            ffi_wrapper.randomise_demande_exponentielle(self.projet)
-        elif choix_dem == "Toutes à 1":
-            ffi_wrapper.set_demande_un(self.projet)
-            
-        if choix_algo == "EPANET":
-            ffi_wrapper.compute_epanet(self.projet)
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
-        else:                        
-            besoin_epanet = (choix_dem in demandes_epanet) or (choix_capa in ["EPANET", "EPANET Partiel"]) or (choix_ori in ["EPANET", "EPANET Partiel"])
-            if besoin_epanet:
-                ffi_wrapper.compute_epanet(self.projet)
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
-
-            if choix_dem in demandes_epanet:
-                ffi_wrapper.get_epanet_demande(self.projet, reseau)
-
-            match (choix_capa):
-                case "EPANET":
-                    ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                case "EPANET Partiel":
-                    ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                    ffi_wrapper.fix_capacite_flow_calcule_portion(reseau, portion)
-                case "Vitesse Max":
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                case _:
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                    self.compute_algo(reseau, choix_capa, p_src, p_dem)
-                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                    ffi_wrapper.nullifier_flow(reseau)
-
-            self.compute_orientation(reseau, choix_ori, p_src, p_dem, portion)
-            self.compute_algo(reseau, choix_algo, p_src, p_dem)
-            
-            if choix_dem in demandes_epanet:
-                ffi_wrapper.get_epanet_fulldemande(self.projet, reseau)
-
-        ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / mult_epa)
-        return reseau
-
-    def trigger_run(self):
-        try:
-            v_res, v_arc = float(self.inputs["Vit. Rés (m/s)"].get()), float(self.inputs["Vit. Arcs (m/s)"].get())
-            p_src, p_dem = float(self.inputs["Prop. Source"].get()), float(self.inputs["Prop. Demande"].get())
-            choix_algo, choix_ori, choix_capa, choix_dem = self.algo_var.get(), self.ori_var.get(), self.capa_var.get(), self.dem_var.get()
-
-            self.status_label.config(text="Calcul en cours...")
-            self.update_idletasks()
-            
-            mult = float(self.inputs["Mult. Demande"].get())
-            portion_val = float(self.inputs["Portion"].get())
-
-            seed_str = self.inputs["Seed (Optionnel)"].get().strip()
-            if seed_str:
-                try:
-                    seed_val = int(seed_str)
-                    if seed_val < 0 or seed_val > 4294967295:
-                        messagebox.showwarning("Attention", "La seed doit être comprise entre 0 et 4294967295.")
-                        return
-                except ValueError:
-                    messagebox.showwarning("Attention", "La seed doit être un nombre entier.")
-                    return
-            else:
-                seed_val = None
-
-            if hasattr(self, 'current_filepath') and self.current_filepath:
-                if self.projet:
-                    ffi_wrapper.free_project(self.projet)
-                self.projet = ffi_wrapper.create_epanet_project(self.current_filepath)
-
-            # Application de la Seed
-            if seed_val is not None:
-                ffi_wrapper.set_random_seed(seed_val)
-            
-            # Sélection de la modification de la demande
-            rand_type = self.rand_type_var.get()
-            if rand_type == "Uniforme":
-                ffi_wrapper.randomise_demande(self.projet)
-            elif rand_type == "Normale":
-                ffi_wrapper.randomise_demande_normale(self.projet)
-            elif rand_type == "Exponentielle":
-                ffi_wrapper.randomise_demande_exponentielle(self.projet)
-            elif rand_type == "Toutes à 1":
-                ffi_wrapper.set_demande_un(self.projet)
-
-
-            if self.randomise_var.get():
-                ffi_wrapper.randomise_demande(self.projet)
-
-            reseau = self.compute_network(choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult, portion_val)
-            self.update_dashboard(reseau)
-            self.extract_data(reseau)
-            ffi_wrapper.free_graph(reseau)
-            self.draw_graph()
-
-            self.status_label.config(
-                text=f"Simulation terminée ({choix_algo})")
-
-        except ValueError:
-            messagebox.showerror("Erreur", "Valeurs invalides.")
-        except Exception as e:
-            messagebox.showerror("Erreur CFFI", str(e))
-
-    def extract_data(self, reseau):
-        self.nodes.clear()
-        self.edges.clear()
-        self.min_x = self.min_y = float('inf')
-        self.max_x = self.max_y = float('-inf')
-
-        nb_sommets = analyse_tools.get_n_sommet(reseau)
-        for i in range(nb_sommets):
-            s_type = analyse_tools.get_sommet_type(reseau, i)
-            x, y = analyse_tools.get_sommet_position(reseau, i)
-            self.nodes.append({
-                'x': x, 'y': y, 'type': s_type, 'id': i + 1,
-                'elevation': analyse_tools.get_sommet_elevation(reseau, i),
-                'demande': analyse_tools.get_sommet_demande(reseau, i),
-                'pression': analyse_tools.get_sommet_pression(reseau, i),
-                'degree': analyse_tools.get_sommet_degree(reseau, i),
-                'satisfaction': analyse_tools.get_sommet_satisfaction(reseau, i) * 100
-            })
-
-            self.min_x, self.max_x = min(self.min_x, x), max(self.max_x, x)
-            self.min_y, self.max_y = min(self.min_y, y), max(self.max_y, y)
-
-        arcs_actifs = analyse_tools.extraire_arcs_orientes_dominants(reseau)
-        nb_arcs = analyse_tools.get_n_arcs(reseau)
-        for k in range(nb_arcs // 2):
-            idx_aller, idx_retour = 2 * k, 2 * k + 1
-            
-            src_type = analyse_tools.get_arc_source_type(reseau, idx_aller)
-            dst_type = analyse_tools.get_arc_dest_type(reseau, idx_aller)
-
-            x1, y1 = analyse_tools.get_arc_source_position(reseau, idx_aller)
-            x2, y2 = analyse_tools.get_arc_dest_position(reseau, idx_aller)
-            velocity = 0.0
-
-            if idx_retour in arcs_actifs:
-                x1, y1, x2, y2 = x2, y2, x1, y1
-
-            self.edges.append({
-                'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 
-                'flow': analyse_tools.get_arc_non_oriente_flow(reseau, idx_aller, idx_retour),
-                'velocity': analyse_tools.get_arc_non_oriente_velocity(reseau, idx_aller, idx_retour),
-                'type': analyse_tools.get_arc_type(reseau, idx_aller),
-                'diametre': analyse_tools.get_arc_diametre(reseau, idx_aller),
-                'longueur': analyse_tools.get_arc_longueur(reseau, idx_aller),
-                'roughness': analyse_tools.get_arc_roughness(reseau, idx_aller),
-                'flow_aller': analyse_tools.get_arc_flow(reseau, idx_aller), 
-                'cap_aller': analyse_tools.get_arc_capacite(reseau, idx_aller),
-                'flow_retour': analyse_tools.get_arc_flow(reseau, idx_retour), 
-                'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour)
-            })
-
     def open_color_settings(self):
-        """Ouvre une fenêtre permettant de choisir la rampe de couleurs, la classification, et les seuils personnalisés."""
         win = tk.Toplevel(self)
         win.title("Symbologie & Couleurs")
         win.geometry("500x480")
@@ -548,7 +401,6 @@ class InternalWindow(tk.Frame):
         tk.Button(action_frame, text="Appliquer & Fermer", bg="#27ae60", fg="white", font=("Segoe UI", 9, "bold"), command=apply_and_close).pack(side="right", padx=15)
 
     def choose_color(self, type_target, idx):
-        """Ouvre le sélecteur de couleurs et met à jour le tableau correspondant."""
         current_color = self.colors_arc[idx] if type_target == 'arc' else self.colors_node[idx]
         color = colorchooser.askcolor(initialcolor=current_color, title=f"Choisir la couleur {idx+1}")
 
@@ -561,7 +413,6 @@ class InternalWindow(tk.Frame):
                 self.btn_nodes[idx].config(bg=color[1])
 
     def get_dynamic_color(self, val, boundaries, is_node=False):
-        """Calcule la couleur interpolée selon les seuils (boundaries) des quantiles/intervalles/perso."""
         palette = self.colors_node if is_node else self.colors_arc
         
         if val <= boundaries[0]: return palette[0]
@@ -619,9 +470,6 @@ class InternalWindow(tk.Frame):
             else:
                 boundaries_arc = [max_val * (i/4.0) for i in range(5)]
 
-        # ====================
-        # LIMITES POUR SOMMETS
-        # ====================
         mode_couleur_node = self.color_node_var.get()
         node_vals = []
         if mode_couleur_node == "Élévation": node_vals = [n['elevation'] for n in self.nodes]
@@ -647,7 +495,7 @@ class InternalWindow(tk.Frame):
 
         self.update_color_bar(boundaries_arc, mode_couleur, boundaries_node, mode_couleur_node)
 
-        # --- DESSIN DES ARCS ---
+        # Dessin des Arcs
         for idx, e in enumerate(self.edges):
             sx1, sy1 = self.world_to_screen(e['x1'], e['y1'])
             sx2, sy2 = self.world_to_screen(e['x2'], e['y2'])
@@ -672,7 +520,7 @@ class InternalWindow(tk.Frame):
             else:
                 self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=width_line, tags=(f"edge_{idx}", "edge"))
 
-        # --- DESSIN DES SOMMETS ---
+        # Dessin des Sommets
         r = 5 if (mode_couleur != "Aucune" or mode_couleur_node != "Aucune") else 4
         for idx, n in enumerate(self.nodes):
             sx, sy = self.world_to_screen(n['x'], n['y'])
@@ -703,7 +551,6 @@ class InternalWindow(tk.Frame):
                 self.canvas.create_rectangle(sx-r, sy-r*2, sx+r, sy+r*2, fill=node_color, outline="black", tags=(f"node_{idx}", "node"))
 
     def update_color_bar(self, boundaries_arc, mode_couleur_edge, boundaries_node, mode_couleur_node):
-        """Dessine et gère intelligemment les légendes superposées avec les valeurs cibles (quantiles/intervalles/perso)."""
         for widget in self.legend_frame.winfo_children():
             widget.destroy()
 
@@ -722,7 +569,6 @@ class InternalWindow(tk.Frame):
         grad_width = 15
 
         def draw_gradient_strip(canvas, palette):
-            """Dessine une bande de couleurs régulièrement espacée indépendamment des valeurs"""
             def hex_to_rgb(h): return tuple(int(h.strip('#')[i:i+2], 16) for i in (0, 2, 4))
             n_colors = len(palette)
             for y in range(grad_height):
@@ -739,12 +585,9 @@ class InternalWindow(tk.Frame):
                 canvas.create_line(0, y, grad_width, y, fill=f'#{r:02x}{g:02x}{b:02x}')
 
         if mode_couleur_node != "Aucune":
-            if mode_couleur_node in ("Élévation", "Pression"):
-                unit = "(m)"
-            elif mode_couleur_node == "Satisfaction":
-                unit = "(%)"
-            else:
-                unit = "(L/min)"
+            if mode_couleur_node in ("Élévation", "Pression"): unit = "(m)"
+            elif mode_couleur_node == "Satisfaction": unit = "(%)"
+            else: unit = "(L/min)"
             label_text = f"Sommets:\n{mode_couleur_node}\n{unit}"
             tk.Label(self.legend_frame, text=label_text, bg="white", fg="black", font=("Segoe UI", 8, "bold")).place(x=center_x, y=current_y, anchor="n")
             
@@ -808,21 +651,18 @@ class InternalWindow(tk.Frame):
 
     def show_node_details(self, idx):
         n = self.nodes[idx]
-        
         msg = f"--- Détails du Sommet ---\n\n"
-        msg += f"ID ID_EPANET : {n['id']}\n"
+        msg += f"ID : {n['id']}\n"
         msg += f"Type de nœud : {ffi_wrapper.get_nom_type_sommet(n['type'])}\n"
         msg += f"Élévation : {n['elevation']:f} m\n"
         msg += f"Pression calculée : {n['pression']:f} m\n"
         msg += f"Demande à la cible : {n['demande']:f} L/min\n"
         msg += f"Demande satisfaite à la cible : {n['satisfaction']:f} %\n"
         msg += f"Degré topologique : {n['degree']}"
-        
         messagebox.showinfo(f"Sommet ID: {n['id']}", msg)
 
     def show_edge_details(self, idx):
         e = self.edges[idx]
-
         msg = f"--- Conduites Symétriques Jumelles ---\n\n"
         msg += f"Type structurel : {ffi_wrapper.get_nom_type_arc(e['type'])}\n"
         msg += f"Diamètre nominal : {e['diametre']:f} mm\n"
@@ -837,5 +677,4 @@ class InternalWindow(tk.Frame):
         msg += f"  • Débit dominant : {e['flow']:f} L/min\n"
         msg += f"  • Rugosité (Roughness) : {e['roughness']}\n"
         msg += f"  • Vitesse calculée : {e['velocity']:f} m/s"
-        
         messagebox.showinfo(f"Double Conduite #{idx}", msg)

@@ -1,222 +1,26 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from src.wrapper_tools import ffi_wrapper
-from src.wrapper_tools import analyse_tools
-from src.creation_dataset import prepare_dataset
 import numpy as np
 import random
 import matplotlib
-matplotlib.use("TkAgg")
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import os
 import json
 import concurrent.futures
 import threading
 import queue
 
-class NpEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer): return int(obj)
-        if isinstance(obj, np.floating): return float(obj)
-        if isinstance(obj, np.ndarray): return obj.tolist()
-        return super(NpEncoder, self).default(obj)
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-SOURCEDEST = ("Ford-Fulkerson", "Edmonds-Karp")
-ALGO = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-ORIEN = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
-CAPACITE = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
-DEMANDE = ("Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
+from src.wrapper_tools import ffi_wrapper
+from src.creation_dataset import prepare_dataset
+from src.backend.run import run_analysis_worker
+from src.backend.extract_data import (
+    ALGORITHMES, ORIENTATIONS, CAPACITES, DEMANDES, 
+    FILETYPES_INP, FILETYPES_JSON, NpEncoder
+)
 
-def compute_algo_standalone(reseau, choix, m_src, m_dst):
-    match (choix):
-        case "Ford-Fulkerson":
-            ffi_wrapper.ajout_source_destination(reseau)
-            ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-            ffi_wrapper.ajout_capacite_source(reseau, m_src)
-            ffi_wrapper.nullifier_flow(reseau)
-            ffi_wrapper.compute_flow_ford_fukerson(reseau)
-            ffi_wrapper.delete_source_destination(reseau)
-        case "Edmonds-Karp":
-            ffi_wrapper.ajout_source_destination(reseau)
-            ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-            ffi_wrapper.ajout_capacite_source(reseau, m_src)
-            ffi_wrapper.nullifier_flow(reseau)
-            ffi_wrapper.compute_flow_edmonds_karp(reseau)
-            ffi_wrapper.delete_source_destination(reseau)
-
-def compute_orientation_standalone(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
-    match (choix_ori):
-        case "EPANET":
-            ffi_wrapper.reget_epanet_flow(projet, reseau)
-            ffi_wrapper.fix_capacite_flow_oriente(reseau)
-        case "EPANET Partiel":
-            ffi_wrapper.reget_epanet_flow(projet, reseau)
-            ffi_wrapper.fix_capacite_flow_oriente_portion(reseau, portion)
-        case "Aucune":
-            pass
-        case _:
-            compute_algo_standalone(reseau, choix_ori, p_src, p_dem)
-            ffi_wrapper.fix_capacite_flow_oriente(reseau)
-
-def compute_network_standalone(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, vitesse, portion=1.0):
-    reseau = None
-    # Liste des choix nécessitant une extraction depuis EPANET
-    demandes_epanet = ["EPANET", "Normale", "Exponentielle", "Toutes à 1"]
-
-    # Application de la distribution spécifique au modèle
-    if choix_dem == "Normale":
-        ffi_wrapper.randomise_demande_normale(projet)
-    elif choix_dem == "Exponentielle":
-        ffi_wrapper.randomise_demande_exponentielle(projet)
-    elif choix_dem == "Toutes à 1":
-        ffi_wrapper.set_demande_un(projet)
-
-    if choix_algo == "EPANET":
-        ffi_wrapper.compute_epanet(projet)
-        reseau = ffi_wrapper.import_epanet_graph(projet)
-    else:            
-        besoin_epanet = (choix_dem in demandes_epanet) or (choix_capa in ["EPANET", "EPANET Partiel"]) or (choix_ori in ["EPANET", "EPANET Partiel"])
-        if besoin_epanet:
-            ffi_wrapper.compute_epanet(projet)
-
-        reseau = ffi_wrapper.import_epanet_graph(projet)
-
-        if choix_dem in demandes_epanet:
-            ffi_wrapper.get_epanet_demande(projet, reseau)
-
-        match (choix_capa):
-            case "EPANET":
-                ffi_wrapper.reget_epanet_flow(projet, reseau)
-                ffi_wrapper.fix_capacite_flow_calcule(reseau)
-            case "EPANET Partiel":
-                ffi_wrapper.reget_epanet_flow(projet, reseau)
-                ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
-                ffi_wrapper.fix_capacite_flow_calcule_portion(reseau, portion)
-            case "Vitesse Max":
-                ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
-            case _:
-                ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
-                compute_algo_standalone(reseau, choix_capa, p_src, p_dem)
-                ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                ffi_wrapper.nullifier_flow(reseau)
-
-        compute_orientation_standalone(projet, reseau, choix_ori, p_src, p_dem, portion)
-        compute_algo_standalone(reseau, choix_algo, p_src, p_dem)
-        
-        if choix_dem in demandes_epanet:
-            ffi_wrapper.get_epanet_fulldemande(projet, reseau)
-
-    return reseau
-
-def compute_metrics_standalone(graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
-                               r_src, r_epa, r_dst, r_v, r_p, 
-                               t_src, t_epa, t_dst, t_v, t_p):
-    wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
-    wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
-    sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
-    sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
-    jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
-    
-    arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref))) * 100
-    arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
-    arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt))) * 100
-    arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
-    
-    nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
-    nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
-    nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
-
-    return {
-        "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
-        "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
-        "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p,
-        "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p,
-        "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
-        "jaccard": jaccard_d,  
-        "arc_nul_ref": arcs_nul_ref.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
-        "arc_non_nul_ref" : arcs_non_nul_ref, 
-        "arc_nul_cible": arcs_nul_tgt.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
-        "arc_non_nul_cible": arcs_non_nul_tgt,
-        "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
-        "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
-    }
-
-def worker_task(task_args):
-    filepath, filename, flags, rand_type, seed_val, params = task_args
-    results = []
-    projet = None
-    
-    try:
-        # Initialisation du projet EPANET propre à ce processus
-        projet = ffi_wrapper.create_epanet_project(filepath)
-
-        if seed_val is not None:
-            ffi_wrapper.set_random_seed(seed_val)
-        
-        # Scénarios de randomisation
-        if rand_type == "Uniforme":
-            ffi_wrapper.randomise_demande(projet)
-        elif rand_type == "Normale":
-            ffi_wrapper.randomise_demande_normale(projet)
-        elif rand_type == "Exponentielle":
-            ffi_wrapper.randomise_demande_exponentielle(projet)
-        elif rand_type == "Toutes à 1":
-            ffi_wrapper.set_demande_un(projet)
-
-        ref_grid = params['ref_grid']
-        
-        # Reproduction exacte des boucles d'origine
-        for r_epa in ref_grid["m_epa"]:
-            ffi_wrapper.modif_multiplicateur(projet, max(r_epa, 1e-6))
-            
-            for r_dst in ref_grid["m_dst"]:
-                for r_src in ref_grid["m_src"]:
-                    for r_v in ref_grid["vitesse"]:
-                        for r_p in ref_grid["portion"]:
-
-                            if params['ref_algo'] == "EPANET":
-                                graph_ref = compute_network_standalone(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, r_v, r_p)
-                            else:
-                                graph_ref = compute_network_standalone(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], r_src, r_dst, r_v, r_p)
-
-                            for tgt in params['targets']:
-                                t_grid = tgt['grid']
-                                for t_epa in t_grid["m_epa"]:
-                                    ratio = max(t_epa, 1e-6) / max(r_epa, 1e-6)
-                                    ffi_wrapper.modif_multiplicateur(projet, ratio)
-
-                                    for t_dst in t_grid["m_dst"]:
-                                        for t_src in t_grid["m_src"]:
-                                            for t_v in t_grid["vitesse"]:
-                                                for t_p in t_grid["portion"]:
-
-                                                    if tgt['algo'] == "EPANET":
-                                                        graph_tgt = compute_network_standalone(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, t_v, t_p)
-                                                    else:
-                                                        graph_tgt = compute_network_standalone(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], t_src, t_dst, t_v, t_p)
-
-                                                    # Récupération des métriques
-                                                    metrics = compute_metrics_standalone(
-                                                        graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
-                                                        r_src, r_epa, r_dst, r_v, r_p, 
-                                                        t_src, t_epa, t_dst, t_v, t_p
-                                                    )
-                                                    results.append(metrics)
-
-                                                    ffi_wrapper.free_graph(graph_tgt)
-
-                                    ffi_wrapper.modif_multiplicateur(projet, 1.0 / ratio)
-
-                            ffi_wrapper.free_graph(graph_ref)
-
-            ffi_wrapper.modif_multiplicateur(projet, 1.0 / max(r_epa, 1e-6))
-
-    finally:
-        if projet is not None:
-            ffi_wrapper.free_project(projet)
-            
-    return results
+matplotlib.use("TkAgg")
 
 class AnalysisWindow(tk.Frame):
     def __init__(self, parent, app_manager):
@@ -421,30 +225,28 @@ class AnalysisWindow(tk.Frame):
         self.nb_rand_norm = make_rand_entry(self.rand_f, "Nb. Normale :")
         self.nb_rand_exp = make_rand_entry(self.rand_f, "Nb. Exponentielle :")
 
-        # --- MODÈLE RÉFÉRENCE ---
         self.ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         self.ref_f.pack(fill=tk.X, pady=5)
         
         tk.Label(self.ref_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_algo = tk.StringVar(value="EPANET")
-        ttk.Combobox(self.ref_f, textvariable=self.ref_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(self.ref_f, textvariable=self.ref_algo, values=ALGORITHMES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
         tk.Label(self.ref_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_dem = tk.StringVar(value="Uniforme")
-        ttk.Combobox(self.ref_f, textvariable=self.ref_dem, values=DEMANDE, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(self.ref_f, textvariable=self.ref_dem, values=DEMANDES, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
         tk.Label(self.ref_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_capa = tk.StringVar(value="Vitesse Max")
-        ttk.Combobox(self.ref_f, textvariable=self.ref_capa, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(self.ref_f, textvariable=self.ref_capa, values=CAPACITES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
         tk.Label(self.ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_ori = tk.StringVar(value="Aucune")
-        ttk.Combobox(self.ref_f, textvariable=self.ref_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(self.ref_f, textvariable=self.ref_ori, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
         tk.Label(self.ref_f, text="Balayage Réf", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
         self.ref_ranges = self.create_grid_ui(self.ref_f)
 
-        # --- MODÈLES CIBLES ---
         self.targets_container = tk.Frame(self.sidebar, bg="#ecf0f1")
         self.targets_container.pack(fill=tk.X, pady=5)
         
@@ -457,7 +259,6 @@ class AnalysisWindow(tk.Frame):
         
         self.add_target_ui()
 
-        # --- FILTRES DE RÉSULTATS (POST-RUN) ---
         self.targets_list_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer les Cibles", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         self.targets_list_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -478,8 +279,6 @@ class AnalysisWindow(tk.Frame):
 
         self.btn_reset = tk.Button(self.run_frame, text="Réinitialiser & Déverrouiller", bg="#e74c3c", fg="white", font=("Segoe UI", 9, "bold"), command=self.reset_analysis)
 
-
-        # --- TRACÉ MATPLOTLIB ---
         tk.Label(self.sidebar, text="Tracé du Graphe", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
         plot_opts = list(self.keys_map.keys())
 
@@ -512,7 +311,6 @@ class AnalysisWindow(tk.Frame):
         self.bins_var.pack(side=tk.RIGHT, padx=5)
         self.bins_var.bind("<Return>", self.update_plot)
 
-        # --- LIGNES STATISTIQUES ---
         tk.Label(self.sidebar, text="Statistiques", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
         
         stat_f = tk.Frame(self.sidebar, bg="#ecf0f1")
@@ -630,19 +428,19 @@ class AnalysisWindow(tk.Frame):
 
         tk.Label(tgt_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         algo_var = tk.StringVar(value="Edmonds-Karp")
-        ttk.Combobox(tgt_f, textvariable=algo_var, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(tgt_f, textvariable=algo_var, values=ALGORITHMES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
         tk.Label(tgt_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         dem_var = tk.StringVar(value="Uniforme")
-        ttk.Combobox(tgt_f, textvariable=dem_var, values=DEMANDE, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(tgt_f, textvariable=dem_var, values=DEMANDES, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
         tk.Label(tgt_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         capa_var = tk.StringVar(value="Vitesse Max")
-        ttk.Combobox(tgt_f, textvariable=capa_var, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(tgt_f, textvariable=capa_var, values=CAPACITES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
         
         tk.Label(tgt_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         ori_var = tk.StringVar(value="Aucune")
-        ttk.Combobox(tgt_f, textvariable=ori_var, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(tgt_f, textvariable=ori_var, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
         
         tk.Label(tgt_f, text="Balayage Cible", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
         ranges = self.create_grid_ui(tgt_f)
@@ -669,8 +467,6 @@ class AnalysisWindow(tk.Frame):
         self.title_label.config(bg=color)
 
     def close_window(self):
-        if self.projet:
-            ffi_wrapper.free_project(self.projet)
         self.app_manager.remove_window(self)
         self.destroy()
 
@@ -706,7 +502,7 @@ class AnalysisWindow(tk.Frame):
         for p in raw_paths:
             wn = prepare_dataset.open_file_epa_int(p)
             if wn:
-                prepare_dataset.convertir_unites(wn, 'LPS')
+                prepare_dataset.convertir_unites(wn, 'LPM')
                 prepare_dataset.change_mode(wn, mode, p_min, p_req, p_exp)
 
                 base_name = os.path.basename(p)
@@ -750,79 +546,9 @@ class AnalysisWindow(tk.Frame):
                 messagebox.showerror("Erreur", f"Impossible de lire l'arborescence : {str(e)}")
 
     def load_files(self):
-        paths = filedialog.askopenfilenames(filetypes=[("EPANET", "*.inp *.INP")])
+        paths = filedialog.askopenfilenames(filetypes=FILETYPES_INP)
         if paths:
             self._prepare_and_load(paths)
-
-    def compute_algo(self, reseau, choix, m_src, m_dst):
-        match (choix):
-            case "Ford-Fulkerson":
-                ffi_wrapper.ajout_source_destination(reseau)
-                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-                ffi_wrapper.ajout_capacite_source(reseau, m_src)
-                ffi_wrapper.nullifier_flow(reseau)
-                ffi_wrapper.compute_flow_ford_fukerson(reseau)
-                ffi_wrapper.delete_source_destination(reseau)
-            case "Edmonds-Karp":
-                ffi_wrapper.ajout_source_destination(reseau)
-                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-                ffi_wrapper.ajout_capacite_source(reseau, m_src)
-                ffi_wrapper.nullifier_flow(reseau)
-                ffi_wrapper.compute_flow_edmonds_karp(reseau)
-                ffi_wrapper.delete_source_destination(reseau)
-
-    def compute_orientation(self, reseau, choix_ori, p_src, p_dem, portion=1.0):
-        match (choix_ori):
-            case "EPANET":
-                ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau)
-            case "EPANET Partiel":
-                ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                ffi_wrapper.fix_capacite_flow_oriente_portion(reseau, portion)
-            case "Aucune":
-                pass
-            case _:
-                self.compute_algo(reseau, choix_ori, p_src, p_dem)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau)
-
-    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, vitesse, portion=1.0):
-        reseau = None
-
-        if choix_algo == "EPANET":
-            ffi_wrapper.compute_epanet(self.projet)
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
-        else:            
-            besoin_epanet = (choix_dem == "EPANET") or (choix_capa in ["EPANET", "EPANET Partiel"]) or (choix_ori  in ["EPANET", "EPANET Partiel"])
-            if besoin_epanet:
-                ffi_wrapper.compute_epanet(self.projet)
-
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
-
-            if choix_dem == "EPANET":
-                ffi_wrapper.get_epanet_demande(self.projet, reseau)
-
-            match (choix_capa):
-                case "EPANET":
-                    ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                case "EPANET Partiel":
-                    ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                    ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
-                    ffi_wrapper.fix_capacite_flow_calcule_portion(reseau, portion)
-                case "Vitesse Max":
-                    ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
-                case _:
-                    ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
-                    self.compute_algo(reseau, choix_capa, p_src, p_dem)
-                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                    ffi_wrapper.nullifier_flow(reseau)
-
-            self.compute_orientation(reseau, choix_ori, p_src, p_dem, portion)
-            self.compute_algo(reseau, choix_algo, p_src, p_dem)
-            if choix_dem == "EPANET":
-                ffi_wrapper.get_epanet_fulldemande(self.projet, reseau)
-
-        return reseau
 
     def _extract_grid(self, ranges):
         def safe_float(v, default=1.0):
@@ -889,47 +615,13 @@ class AnalysisWindow(tk.Frame):
             "ref_dem": self.ref_dem.get(),
             "ref_grid": self._extract_grid(self.ref_ranges),
             "randomizations": randomizations,
-            "targets": clean_targets_for_mp # <--- On envoie la version propre ici
-        }
-
-    def _compute_metrics(self, graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
-                         r_src, r_epa, r_dst, r_v, r_p, 
-                         t_src, t_epa, t_dst, t_v, t_p):
-        wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
-        wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
-        sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
-        sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
-        jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
-        
-        arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref))) * 100
-        arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
-        arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt))) * 100
-        arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
-        
-        nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
-        nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
-        nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
-
-        return {
-            "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
-            "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
-            "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p,
-            "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p,
-            "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
-            "jaccard": jaccard_d,  
-            "arc_nul_ref": arcs_nul_ref.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
-            "arc_non_nul_ref" : arcs_non_nul_ref, 
-            "arc_nul_cible": arcs_nul_tgt.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
-            "arc_non_nul_cible": arcs_non_nul_tgt,
-            "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
-            "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
+            "targets": clean_targets_for_mp
         }
 
     def run_analysis(self):
         params = self._extract_analysis_params()
         num_procs = int(self.num_proc_var.get())
         
-        # --- CALCUL DU NOMBRE DE SIMULATIONS ---
         ref_grid = params['ref_grid']
         ref_iters = len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
         
@@ -939,9 +631,7 @@ class AnalysisWindow(tk.Frame):
             tgt_iters += len(t_grid["m_epa"]) * len(t_grid["m_dst"]) * len(t_grid["m_src"]) * len(t_grid["vitesse"]) * len(t_grid["portion"])
             
         sims_per_task = ref_iters * tgt_iters
-        # ---------------------------------------
         
-        # Prépare les tâches
         tasks = []
         file_flags = {fp: prepare_dataset.file_contains_elements(fp) for fp in self.loaded_files}
         for filepath in self.loaded_files:
@@ -955,13 +645,11 @@ class AnalysisWindow(tk.Frame):
         self.freeze_ui(True)
         self.progress_queue = queue.Queue()
         
-        # Afficher et réinitialiser la barre avec le total de simulations
         self.progress_bar.pack(side=tk.LEFT, padx=10)
         self.progress_bar["value"] = 0
         self.progress_bar["maximum"] = total_simulations
         print(f"\n[--- Lancement de l'analyse : {total_simulations} simulations prévues ---]")
 
-        # Lance le calcul dans un thread séparé en lui passant les nouveaux compteurs
         threading.Thread(target=self._run_multiprocessing, args=(tasks, num_procs, sims_per_task, total_simulations), daemon=True).start()
         self.after(100, self._check_progress)
 
@@ -970,15 +658,10 @@ class AnalysisWindow(tk.Frame):
         completed_sims = 0
         try:
             with concurrent.futures.ProcessPoolExecutor(max_workers=num_procs) as executor:
-                # On soumet toutes les tâches
-                futures = [executor.submit(worker_task, t) for t in tasks]
-                
-                # On récupère les résultats dès qu'ils se terminent
+                futures = [executor.submit(run_analysis_worker, t) for t in tasks]
                 for f in concurrent.futures.as_completed(futures):
                     all_results.extend(f.result())
-                    completed_sims += sims_per_task  # On ajoute le nombre de simulations de ce bloc
-                    
-                    # On envoie l'état d'avancement au thread principal
+                    completed_sims += sims_per_task
                     self.progress_queue.put(('step', completed_sims, total_simulations))
                     
             self.progress_queue.put(('done', all_results))
@@ -994,11 +677,9 @@ class AnalysisWindow(tk.Frame):
                 if isinstance(msg, tuple) and msg[0] == 'step':
                     completed, total = msg[1], msg[2]
                     
-                    # 1. Mise à jour de l'UI (Barre et Texte)
                     self.progress_bar["value"] = completed
                     self.status_label.config(text=f"Calcul en cours : {completed}/{total} simulation(s)...")
                     
-                    # 2. Mise à jour du Terminal (Barre de chargement)
                     percent = (completed / total) * 100 if total > 0 else 0
                     bar_len = 40
                     filled_len = int(bar_len * completed // total) if total > 0 else 0
@@ -1010,7 +691,7 @@ class AnalysisWindow(tk.Frame):
                     self.results = msg[1]
                     self.rebuild_filters_from_results()
                     self.btn_save_analysis.config(state=tk.NORMAL)
-                    self.progress_bar.pack_forget() # On cache la barre
+                    self.progress_bar.pack_forget()
                     self.update_plot()
                     self.status_label.config(text=f"Analyse terminée avec succès ({len(self.results)} résultats).")
                     print("\n[--- Analyse terminée ! ---]\n")
@@ -1019,7 +700,7 @@ class AnalysisWindow(tk.Frame):
                 elif isinstance(msg, tuple) and msg[0] == 'error':
                     from tkinter import messagebox
                     messagebox.showerror("Erreur", str(msg[1]))
-                    self.progress_bar.pack_forget() # On cache la barre
+                    self.progress_bar.pack_forget()
                     self.freeze_ui(False)
                     print(f"\n[X] Erreur d'analyse : {msg[1]}\n")
                     return
@@ -1027,8 +708,7 @@ class AnalysisWindow(tk.Frame):
         except queue.Empty:
             pass
             
-        # Mise à jour toutes les 10 secondes
-        self.after(10000, self._check_progress)
+        self.after(100, self._check_progress)
 
     def update_plot(self, event=None):
         if not hasattr(self, 'results') or not self.results:
@@ -1055,7 +735,6 @@ class AnalysisWindow(tk.Frame):
             min_res, max_res = 0, 999999
 
         for r in self.results:
-            # Vérifier si le fichier est coché dans la liste des Checkbuttons
             if r['filepath'] in self.file_vars and not self.file_vars[r['filepath']].get():
                 continue
 
@@ -1154,7 +833,6 @@ class AnalysisWindow(tk.Frame):
                     sc = self.ax.scatter(x_d, y_d, label=t_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
                     sc.custom_data = t_res 
                     self.scatters.append(sc)
-                
 
             elif c_selection == "Fichiers":
                 unique_files = list(dict.fromkeys([r['filename'] for r in filtered_results]))
@@ -1167,7 +845,6 @@ class AnalysisWindow(tk.Frame):
                     sc = self.ax.scatter(x_d, y_d, label=f_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
                     sc.custom_data = f_res 
                     self.scatters.append(sc)
-                
 
             else:
                 c_k = self.keys_map[c_selection]
@@ -1206,7 +883,6 @@ class AnalysisWindow(tk.Frame):
             y_pos = self.ax.get_ylim()[0] + (self.ax.get_ylim()[1] - self.ax.get_ylim()[0])*0.8
             self.ax.text(median_x, y_pos, f' Méd. X: {median_x:.2f}', color='purple', fontsize=8, fontweight='bold', ha='right', rotation=90)
 
-
         if plot_type != "Histogramme (1D)":
             if y_k:
                 self.ax.set_ylabel(self.y_var.get(), fontweight='bold')
@@ -1237,7 +913,8 @@ class AnalysisWindow(tk.Frame):
         def spawn_visualizer(title, filepath):
             win = InternalWindow(self.app_manager.workspace, self.app_manager, title=title)
             self.app_manager.windows.append(win)
-            win.load_file(filepath)
+            win.current_filepath = filepath
+            
             tgt = next((c for c in self.target_configs if c['uid'] == res['target_uid']), None)
             if not tgt: return
             
@@ -1275,14 +952,14 @@ class AnalysisWindow(tk.Frame):
         if not self.results:
             messagebox.showwarning("Attention", "Aucune analyse à sauvegarder.")
             return
-        filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json")])
+        filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=FILETYPES_JSON)
         if filepath:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.results, f, cls=NpEncoder, indent=4)
             messagebox.showinfo("Succès", "L'analyse a été sauvegardée avec succès.")
 
     def load_analysis(self, pre_filepath=None):
-        filepath = pre_filepath or filedialog.askopenfilename(filetypes=[("JSON Files", "*.json")])
+        filepath = pre_filepath or filedialog.askopenfilename(filetypes=FILETYPES_JSON)
         if filepath:
             with open(filepath, 'r', encoding='utf-8') as f:
                 self.results = json.load(f)
@@ -1293,7 +970,6 @@ class AnalysisWindow(tk.Frame):
             self.status_label.config(text=f"Analyse chargée depuis : {os.path.basename(filepath)}")
 
     def rebuild_filters_from_results(self):
-        # Nettoie les anciens filtres
         for widget in self.files_frame.winfo_children(): widget.destroy()
         for widget in self.rand_filter_frame.winfo_children(): widget.destroy()
         for widget in self.targets_list_frame.winfo_children(): widget.destroy()
@@ -1301,7 +977,6 @@ class AnalysisWindow(tk.Frame):
         self.rand_vars.clear()
         self.target_configs.clear()
 
-        # Recrée les Checkbuttons en lisant le JSON
         for f in list(set([r['filepath'] for r in self.results])):
             self.file_vars[f] = tk.BooleanVar(value=True)
             tk.Checkbutton(self.files_frame, text=os.path.basename(f), variable=self.file_vars[f], bg="white", font=("Segoe UI", 7), anchor="w", command=self.update_plot).pack(fill=tk.X)
