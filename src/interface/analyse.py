@@ -10,14 +10,213 @@ matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import os
+import json
+import concurrent.futures
+import threading
+import queue
 
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer): return int(obj)
+        if isinstance(obj, np.floating): return float(obj)
+        if isinstance(obj, np.ndarray): return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 SOURCEDEST = ("Ford-Fulkerson", "Edmonds-Karp")
 ALGO = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
 ORIEN = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 CAPACITE = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
-DEMANDE = ("Uniforme", "EPANET")
+DEMANDE = ("Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
 
+def compute_algo_standalone(reseau, choix, m_src, m_dst):
+    match (choix):
+        case "Ford-Fulkerson":
+            ffi_wrapper.ajout_source_destination(reseau)
+            ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+            ffi_wrapper.ajout_capacite_source(reseau, m_src)
+            ffi_wrapper.nullifier_flow(reseau)
+            ffi_wrapper.compute_flow_ford_fukerson(reseau)
+            ffi_wrapper.delete_source_destination(reseau)
+        case "Edmonds-Karp":
+            ffi_wrapper.ajout_source_destination(reseau)
+            ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+            ffi_wrapper.ajout_capacite_source(reseau, m_src)
+            ffi_wrapper.nullifier_flow(reseau)
+            ffi_wrapper.compute_flow_edmonds_karp(reseau)
+            ffi_wrapper.delete_source_destination(reseau)
+
+def compute_orientation_standalone(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
+    match (choix_ori):
+        case "EPANET":
+            ffi_wrapper.reget_epanet_flow(projet, reseau)
+            ffi_wrapper.fix_capacite_flow_oriente(reseau)
+        case "EPANET Partiel":
+            ffi_wrapper.reget_epanet_flow(projet, reseau)
+            ffi_wrapper.fix_capacite_flow_oriente_portion(reseau, portion)
+        case "Aucune":
+            pass
+        case _:
+            compute_algo_standalone(reseau, choix_ori, p_src, p_dem)
+            ffi_wrapper.fix_capacite_flow_oriente(reseau)
+
+def compute_network_standalone(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, vitesse, portion=1.0):
+    reseau = None
+    # Liste des choix nécessitant une extraction depuis EPANET
+    demandes_epanet = ["EPANET", "Normale", "Exponentielle", "Toutes à 1"]
+
+    # Application de la distribution spécifique au modèle
+    if choix_dem == "Normale":
+        ffi_wrapper.randomise_demande_normale(projet)
+    elif choix_dem == "Exponentielle":
+        ffi_wrapper.randomise_demande_exponentielle(projet)
+    elif choix_dem == "Toutes à 1":
+        ffi_wrapper.set_demande_un(projet)
+
+    if choix_algo == "EPANET":
+        ffi_wrapper.compute_epanet(projet)
+        reseau = ffi_wrapper.import_epanet_graph(projet)
+    else:            
+        besoin_epanet = (choix_dem in demandes_epanet) or (choix_capa in ["EPANET", "EPANET Partiel"]) or (choix_ori in ["EPANET", "EPANET Partiel"])
+        if besoin_epanet:
+            ffi_wrapper.compute_epanet(projet)
+
+        reseau = ffi_wrapper.import_epanet_graph(projet)
+
+        if choix_dem in demandes_epanet:
+            ffi_wrapper.get_epanet_demande(projet, reseau)
+
+        match (choix_capa):
+            case "EPANET":
+                ffi_wrapper.reget_epanet_flow(projet, reseau)
+                ffi_wrapper.fix_capacite_flow_calcule(reseau)
+            case "EPANET Partiel":
+                ffi_wrapper.reget_epanet_flow(projet, reseau)
+                ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
+                ffi_wrapper.fix_capacite_flow_calcule_portion(reseau, portion)
+            case "Vitesse Max":
+                ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
+            case _:
+                ffi_wrapper.fix_capacite_flow(reseau, vitesse, vitesse)
+                compute_algo_standalone(reseau, choix_capa, p_src, p_dem)
+                ffi_wrapper.fix_capacite_flow_calcule(reseau)
+                ffi_wrapper.nullifier_flow(reseau)
+
+        compute_orientation_standalone(projet, reseau, choix_ori, p_src, p_dem, portion)
+        compute_algo_standalone(reseau, choix_algo, p_src, p_dem)
+        
+        if choix_dem in demandes_epanet:
+            ffi_wrapper.get_epanet_fulldemande(projet, reseau)
+
+    return reseau
+
+def compute_metrics_standalone(graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
+                               r_src, r_epa, r_dst, r_v, r_p, 
+                               t_src, t_epa, t_dst, t_v, t_p):
+    wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
+    wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
+    sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
+    sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
+    jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
+    
+    arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref))) * 100
+    arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
+    arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt))) * 100
+    arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
+    
+    nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
+    nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
+    nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
+
+    return {
+        "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
+        "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
+        "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p,
+        "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p,
+        "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
+        "jaccard": jaccard_d,  
+        "arc_nul_ref": arcs_nul_ref.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
+        "arc_non_nul_ref" : arcs_non_nul_ref, 
+        "arc_nul_cible": arcs_nul_tgt.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
+        "arc_non_nul_cible": arcs_non_nul_tgt,
+        "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
+        "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
+    }
+
+def worker_task(task_args):
+    filepath, filename, flags, rand_type, seed_val, params = task_args
+    results = []
+    projet = None
+    
+    try:
+        # Initialisation du projet EPANET propre à ce processus
+        projet = ffi_wrapper.create_epanet_project(filepath)
+
+        if seed_val is not None:
+            ffi_wrapper.set_random_seed(seed_val)
+        
+        # Scénarios de randomisation
+        if rand_type == "Uniforme":
+            ffi_wrapper.randomise_demande(projet)
+        elif rand_type == "Normale":
+            ffi_wrapper.randomise_demande_normale(projet)
+        elif rand_type == "Exponentielle":
+            ffi_wrapper.randomise_demande_exponentielle(projet)
+        elif rand_type == "Toutes à 1":
+            ffi_wrapper.set_demande_un(projet)
+
+        ref_grid = params['ref_grid']
+        
+        # Reproduction exacte des boucles d'origine
+        for r_epa in ref_grid["m_epa"]:
+            ffi_wrapper.modif_multiplicateur(projet, max(r_epa, 1e-6))
+            
+            for r_dst in ref_grid["m_dst"]:
+                for r_src in ref_grid["m_src"]:
+                    for r_v in ref_grid["vitesse"]:
+                        for r_p in ref_grid["portion"]:
+
+                            if params['ref_algo'] == "EPANET":
+                                graph_ref = compute_network_standalone(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, r_v, r_p)
+                            else:
+                                graph_ref = compute_network_standalone(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], r_src, r_dst, r_v, r_p)
+
+                            for tgt in params['targets']:
+                                t_grid = tgt['grid']
+                                for t_epa in t_grid["m_epa"]:
+                                    ratio = max(t_epa, 1e-6) / max(r_epa, 1e-6)
+                                    ffi_wrapper.modif_multiplicateur(projet, ratio)
+
+                                    for t_dst in t_grid["m_dst"]:
+                                        for t_src in t_grid["m_src"]:
+                                            for t_v in t_grid["vitesse"]:
+                                                for t_p in t_grid["portion"]:
+
+                                                    if tgt['algo'] == "EPANET":
+                                                        graph_tgt = compute_network_standalone(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, t_v, t_p)
+                                                    else:
+                                                        graph_tgt = compute_network_standalone(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], t_src, t_dst, t_v, t_p)
+
+                                                    # Récupération des métriques
+                                                    metrics = compute_metrics_standalone(
+                                                        graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
+                                                        r_src, r_epa, r_dst, r_v, r_p, 
+                                                        t_src, t_epa, t_dst, t_v, t_p
+                                                    )
+                                                    results.append(metrics)
+
+                                                    ffi_wrapper.free_graph(graph_tgt)
+
+                                    ffi_wrapper.modif_multiplicateur(projet, 1.0 / ratio)
+
+                            ffi_wrapper.free_graph(graph_ref)
+
+            ffi_wrapper.modif_multiplicateur(projet, 1.0 / max(r_epa, 1e-6))
+
+    finally:
+        if projet is not None:
+            ffi_wrapper.free_project(projet)
+            
+    return results
 
 class AnalysisWindow(tk.Frame):
     def __init__(self, parent, app_manager):
@@ -142,6 +341,13 @@ class AnalysisWindow(tk.Frame):
         self.btn_load_dir = tk.Button(btn_frame, text="Ajouter & Préparer Dossier", command=self.load_directory, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold"))
         self.btn_load_dir.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
 
+        io_f = tk.Frame(self.sidebar, bg="#ecf0f1")
+        io_f.pack(fill=tk.X, pady=(0, 5))
+        self.btn_load_analysis = tk.Button(io_f, text="Ouvrir Analyse", command=self.load_analysis, bg="#f39c12", fg="white", font=("Segoe UI", 8, "bold"))
+        self.btn_load_analysis.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        self.btn_save_analysis = tk.Button(io_f, text="Sauvegarder", command=self.save_analysis, bg="#d35400", fg="white", font=("Segoe UI", 8, "bold"), state=tk.DISABLED)
+        self.btn_save_analysis.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
+
         self.files_frame = tk.Frame(self.sidebar, bg="white", relief="sunken", bd=1)
         self.files_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -261,10 +467,17 @@ class AnalysisWindow(tk.Frame):
         self.run_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
         self.run_frame.pack(fill=tk.X, pady=10)
 
+        proc_f = tk.Frame(self.run_frame, bg="#ecf0f1")
+        proc_f.pack(fill=tk.X, pady=(0, 5))
+        tk.Label(proc_f, text="Nb Processus:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+        self.num_proc_var = tk.StringVar(value="4")
+        tk.Entry(proc_f, textvariable=self.num_proc_var, width=5).pack(side=tk.LEFT, padx=5)
+
         self.btn_run = tk.Button(self.run_frame, text="Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis)
         self.btn_run.pack(fill=tk.X, pady=(0, 5))
 
         self.btn_reset = tk.Button(self.run_frame, text="Réinitialiser & Déverrouiller", bg="#e74c3c", fg="white", font=("Segoe UI", 9, "bold"), command=self.reset_analysis)
+
 
         # --- TRACÉ MATPLOTLIB ---
         tk.Label(self.sidebar, text="Tracé du Graphe", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
@@ -340,6 +553,7 @@ class AnalysisWindow(tk.Frame):
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.status_label = tk.Label(self.status_bar, text="Prêt", bg="#bdc3c7", font=("Segoe UI", 8))
         self.status_label.pack(side=tk.LEFT, padx=5)
+        self.progress_bar = ttk.Progressbar(self.status_bar, orient="horizontal", length=250, mode="determinate")
 
         self.grip = tk.Label(self.status_bar, text="◢", bg="#bdc3c7", fg="#7f8c8d", cursor="bottom_right_corner")
         self.grip.pack(side=tk.RIGHT, anchor="se", padx=2)
@@ -628,8 +842,11 @@ class AnalysisWindow(tk.Frame):
 
     def _extract_analysis_params(self):
         self.target_configs = []
+        clean_targets_for_mp = []
+        
         for i, row in enumerate(self.target_ui_rows):
             name = f"C{i+1}: {row['algo'].get()[:4]} | O:{row['ori'].get()[:4]} | C:{row['capa'].get()[:4]}"
+            
             self.target_configs.append({
                 "uid": row['uid'], "name": name,
                 "algo": row['algo'].get(), "ori": row['ori'].get(),
@@ -637,6 +854,14 @@ class AnalysisWindow(tk.Frame):
                 "var": row['var'],
                 "grid": self._extract_grid(row['ranges'])
             })
+            
+            if row['var'].get():
+                clean_targets_for_mp.append({
+                    "uid": row['uid'], "name": name,
+                    "algo": row['algo'].get(), "ori": row['ori'].get(),
+                    "capa": row['capa'].get(), "dem": row['dem'].get(),
+                    "grid": self._extract_grid(row['ranges'])
+                })
 
         randomizations = []
         if self.run_base_var.get():
@@ -664,7 +889,7 @@ class AnalysisWindow(tk.Frame):
             "ref_dem": self.ref_dem.get(),
             "ref_grid": self._extract_grid(self.ref_ranges),
             "randomizations": randomizations,
-            "targets": self.target_configs
+            "targets": clean_targets_for_mp # <--- On envoie la version propre ici
         }
 
     def _compute_metrics(self, graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
@@ -701,112 +926,109 @@ class AnalysisWindow(tk.Frame):
         }
 
     def run_analysis(self):
-        if not self.loaded_files:
-            messagebox.showinfo("Info", "Veuillez charger au moins un fichier .inp d'abord.")
-            return
-        if not self.target_ui_rows:
-            messagebox.showinfo("Info", "Veuillez ajouter au moins un modèle cible.")
-            return
-
         params = self._extract_analysis_params()
-        self.results = []
+        num_procs = int(self.num_proc_var.get())
         
+        # --- CALCUL DU NOMBRE DE SIMULATIONS ---
         ref_grid = params['ref_grid']
         ref_iters = len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
-        tgt_iters = sum([len(t['grid']["m_epa"]) * len(t['grid']["m_dst"]) * len(t['grid']["m_src"]) * len(t['grid']["vitesse"]) * len(t['grid']["portion"]) for t in params['targets']])
         
-        total_iters = len(self.loaded_files) * len(params['randomizations']) * ref_iters * tgt_iters
-        current_iter = 0
-
-        file_flags = {filepath: prepare_dataset.file_contains_elements(filepath) for filepath in self.loaded_files}
-
-        try:
-            for filepath in self.loaded_files:
-                filename = os.path.basename(filepath)
-                flags = file_flags[filepath]
-                print(filename)
-                for rand_type, seed_val in params['randomizations']:
-                    self.projet = ffi_wrapper.create_epanet_project(filepath)
-
-                    if seed_val is not None:
-                        ffi_wrapper.set_random_seed(seed_val)
-                    
-                    if rand_type == "Uniforme":
-                        ffi_wrapper.randomise_demande(self.projet)
-                    elif rand_type == "Normale":
-                        ffi_wrapper.randomise_demande_normale(self.projet)
-                    elif rand_type == "Exponentielle":
-                        ffi_wrapper.randomise_demande_exponentielle(self.projet)
-                    elif rand_type == "Toutes à 1":
-                        ffi_wrapper.set_demande_un(self.projet)
-
-                    for r_epa in ref_grid["m_epa"]:
-                        ffi_wrapper.modif_multiplicateur(self.projet, max(r_epa, 1e-6))
-                        for r_dst in ref_grid["m_dst"]:
-                            for r_src in ref_grid["m_src"]:
-                                for r_v in ref_grid["vitesse"]:
-                                    for r_p in ref_grid["portion"]:
-
-                                        if params['ref_algo'] == "EPANET":
-                                            graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, r_v, r_p)
-                                        else:
-                                            graph_ref = self.compute_network(params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], r_src, r_dst, r_v, r_p)
-
-                                        for tgt in params['targets']:
-                                            t_grid = tgt['grid']
-                                            for t_epa in t_grid["m_epa"]:
-                                                ratio = max(t_epa, 1e-6) / max(r_epa, 1e-6)
-                                                ffi_wrapper.modif_multiplicateur(self.projet, ratio)
-
-                                                for t_dst in t_grid["m_dst"]:
-                                                    for t_src in t_grid["m_src"]:
-                                                        for t_v in t_grid["vitesse"]:
-                                                            for t_p in t_grid["portion"]:
-                                                                current_iter += 1
-                                                                self.status_label.config(text=f"Calcul : {current_iter}/{total_iters} ...")
-                                                                self.update_idletasks()
-
-                                                                if tgt['algo'] == "EPANET":
-                                                                    graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, t_v, t_p)
-                                                                else:
-                                                                    graph_tgt = self.compute_network(tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], t_src, t_dst, t_v, t_p)
-
-                                                                metrics = self._compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
-                                                                                                r_src, r_epa, r_dst, r_v, r_p, 
-                                                                                                t_src, t_epa, t_dst, t_v, t_p)
-                                                                self.results.append(metrics)
-
-                                                                ffi_wrapper.free_graph(graph_tgt)
-
-                                                ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / ratio)
-
-                                        ffi_wrapper.free_graph(graph_ref)
-
-                        ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / max(r_epa, 1e-6))
-
-                    ffi_wrapper.free_project(self.projet)
-                    self.projet = None
-
-            unique_rands = list(set([r.get('rand_type', 'Aucune') for r in self.results]))
-            for widget in self.rand_filter_frame.winfo_children():
-                widget.destroy()
-            self.rand_vars.clear()
+        tgt_iters = 0
+        for t in params['targets']:
+            t_grid = t['grid']
+            tgt_iters += len(t_grid["m_epa"]) * len(t_grid["m_dst"]) * len(t_grid["m_src"]) * len(t_grid["vitesse"]) * len(t_grid["portion"])
             
-            for r_type in sorted(unique_rands):
-                var = tk.BooleanVar(value=True)
-                self.rand_vars[r_type] = var
-                cb = tk.Checkbutton(self.rand_filter_frame, text=r_type, variable=var, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot)
-                cb.pack(fill=tk.X, padx=5)
+        sims_per_task = ref_iters * tgt_iters
+        # ---------------------------------------
+        
+        # Prépare les tâches
+        tasks = []
+        file_flags = {fp: prepare_dataset.file_contains_elements(fp) for fp in self.loaded_files}
+        for filepath in self.loaded_files:
+            if not self.file_vars[filepath].get(): continue
+            filename = os.path.basename(filepath)
+            for rand_type, seed_val in params['randomizations']:
+                tasks.append((filepath, filename, file_flags[filepath], rand_type, seed_val, params))
 
-            self.status_label.config(text=f"Analyse terminée ({total_iters} simulations).")
-            self.freeze_ui(True)
-            self.update_plot()
+        total_simulations = len(tasks) * sims_per_task
 
+        self.freeze_ui(True)
+        self.progress_queue = queue.Queue()
+        
+        # Afficher et réinitialiser la barre avec le total de simulations
+        self.progress_bar.pack(side=tk.LEFT, padx=10)
+        self.progress_bar["value"] = 0
+        self.progress_bar["maximum"] = total_simulations
+        print(f"\n[--- Lancement de l'analyse : {total_simulations} simulations prévues ---]")
+
+        # Lance le calcul dans un thread séparé en lui passant les nouveaux compteurs
+        threading.Thread(target=self._run_multiprocessing, args=(tasks, num_procs, sims_per_task, total_simulations), daemon=True).start()
+        self.after(100, self._check_progress)
+
+    def _run_multiprocessing(self, tasks, num_procs, sims_per_task, total_simulations):
+        all_results = []
+        completed_sims = 0
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=num_procs) as executor:
+                # On soumet toutes les tâches
+                futures = [executor.submit(worker_task, t) for t in tasks]
+                
+                # On récupère les résultats dès qu'ils se terminent
+                for f in concurrent.futures.as_completed(futures):
+                    all_results.extend(f.result())
+                    completed_sims += sims_per_task  # On ajoute le nombre de simulations de ce bloc
+                    
+                    # On envoie l'état d'avancement au thread principal
+                    self.progress_queue.put(('step', completed_sims, total_simulations))
+                    
+            self.progress_queue.put(('done', all_results))
         except Exception as e:
-            if getattr(self, 'projet', None) is not None:
-                ffi_wrapper.free_project(self.projet)
-                self.projet = None
-            messagebox.showerror("Erreur lors de l'analyse", str(e))
+            self.progress_queue.put(('error', str(e)))
+
+    def _check_progress(self):
+        import sys
+        try:
+            while True:
+                msg = self.progress_queue.get_nowait()
+                
+                if isinstance(msg, tuple) and msg[0] == 'step':
+                    completed, total = msg[1], msg[2]
+                    
+                    # 1. Mise à jour de l'UI (Barre et Texte)
+                    self.progress_bar["value"] = completed
+                    self.status_label.config(text=f"Calcul en cours : {completed}/{total} simulation(s)...")
+                    
+                    # 2. Mise à jour du Terminal (Barre de chargement)
+                    percent = (completed / total) * 100 if total > 0 else 0
+                    bar_len = 40
+                    filled_len = int(bar_len * completed // total) if total > 0 else 0
+                    bar = '█' * filled_len + '-' * (bar_len - filled_len)
+                    sys.stdout.write(f'\rProgression |{bar}| {percent:.1f}% ({completed}/{total})')
+                    sys.stdout.flush()
+                    
+                elif isinstance(msg, tuple) and msg[0] == 'done':
+                    self.results = msg[1]
+                    self.rebuild_filters_from_results()
+                    self.btn_save_analysis.config(state=tk.NORMAL)
+                    self.progress_bar.pack_forget() # On cache la barre
+                    self.update_plot()
+                    self.status_label.config(text=f"Analyse terminée avec succès ({len(self.results)} résultats).")
+                    print("\n[--- Analyse terminée ! ---]\n")
+                    return
+                    
+                elif isinstance(msg, tuple) and msg[0] == 'error':
+                    from tkinter import messagebox
+                    messagebox.showerror("Erreur", str(msg[1]))
+                    self.progress_bar.pack_forget() # On cache la barre
+                    self.freeze_ui(False)
+                    print(f"\n[X] Erreur d'analyse : {msg[1]}\n")
+                    return
+                    
+        except queue.Empty:
+            pass
+            
+        # Mise à jour toutes les 10 secondes
+        self.after(10000, self._check_progress)
 
     def update_plot(self, event=None):
         if not hasattr(self, 'results') or not self.results:
@@ -1048,3 +1270,48 @@ class AnalysisWindow(tk.Frame):
             return win
 
         win_tgt = spawn_visualizer(f"Cible: {res['target_name']}", res['filepath'])
+
+    def save_analysis(self):
+        if not self.results:
+            messagebox.showwarning("Attention", "Aucune analyse à sauvegarder.")
+            return
+        filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json")])
+        if filepath:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.results, f, cls=NpEncoder, indent=4)
+            messagebox.showinfo("Succès", "L'analyse a été sauvegardée avec succès.")
+
+    def load_analysis(self, pre_filepath=None):
+        filepath = pre_filepath or filedialog.askopenfilename(filetypes=[("JSON Files", "*.json")])
+        if filepath:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                self.results = json.load(f)
+            self.rebuild_filters_from_results()
+            self.freeze_ui(True)
+            self.update_plot()
+            self.btn_save_analysis.config(state=tk.NORMAL)
+            self.status_label.config(text=f"Analyse chargée depuis : {os.path.basename(filepath)}")
+
+    def rebuild_filters_from_results(self):
+        # Nettoie les anciens filtres
+        for widget in self.files_frame.winfo_children(): widget.destroy()
+        for widget in self.rand_filter_frame.winfo_children(): widget.destroy()
+        for widget in self.targets_list_frame.winfo_children(): widget.destroy()
+        self.file_vars.clear()
+        self.rand_vars.clear()
+        self.target_configs.clear()
+
+        # Recrée les Checkbuttons en lisant le JSON
+        for f in list(set([r['filepath'] for r in self.results])):
+            self.file_vars[f] = tk.BooleanVar(value=True)
+            tk.Checkbutton(self.files_frame, text=os.path.basename(f), variable=self.file_vars[f], bg="white", font=("Segoe UI", 7), anchor="w", command=self.update_plot).pack(fill=tk.X)
+
+        for r_type in sorted(list(set([r.get('rand_type', 'Aucune') for r in self.results]))):
+            self.rand_vars[r_type] = tk.BooleanVar(value=True)
+            tk.Checkbutton(self.rand_filter_frame, text=r_type, variable=self.rand_vars[r_type], bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
+
+        for uid in sorted(list(set([r['target_uid'] for r in self.results]))):
+            name = next(r['target_name'] for r in self.results if r['target_uid'] == uid)
+            var = tk.BooleanVar(value=True)
+            self.target_configs.append({'uid': uid, 'name': name, 'var': var})
+            tk.Checkbutton(self.targets_list_frame, text=name, variable=var, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)

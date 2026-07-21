@@ -122,14 +122,21 @@ void randomise_demande(EN_Project* ph) {
 
 void set_demande_un(EN_Project* ph) {
     nbr nb_nodes;
-    double demand;
     EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
     
     for (nbr i = 1; i <= nb_nodes; i++) {
-        EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+        int num_demands = 0;
+        EN_getnumdemands(*ph, i, &num_demands);
 
-        if (demand > 0.0) {
-            EN_setnodevalue(*ph, i, EN_BASEDEMAND, 1.0);
+        for (int cat = 1; cat <= num_demands; cat++) {
+            double base_demand = 0.0;
+            EN_getbasedemand(*ph, i, cat, &base_demand);
+
+            if (base_demand > 0.0) {
+                EN_setbasedemand(*ph, i, cat, 1.0);
+            }
+
+            EN_setdemandpattern(*ph, i, cat, 0); 
         }
     }
 }
