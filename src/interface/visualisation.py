@@ -108,7 +108,7 @@ class InternalWindow(tk.Frame):
         ttk.Combobox(self.sidebar, textvariable=self.ori_var, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, pady=(0, 10))
 
         tk.Label(self.sidebar, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        self.dem_var = tk.StringVar(value="Uniforme")
+        self.dem_var = tk.StringVar(value="Inchanger")
         ttk.Combobox(self.sidebar, textvariable=self.dem_var, values=DEMANDES, state="readonly").pack(fill=tk.X, pady=(0, 10))
 
         self.inputs = {}
@@ -136,13 +136,6 @@ class InternalWindow(tk.Frame):
 
         tk.Button(self.sidebar, text="▶ SIMULER", bg="#27ae60", fg="white", font=("Segoe UI", 9, "bold"), command=self.trigger_run).pack(fill=tk.X, pady=(10, 5))
         tk.Button(self.sidebar, text="Recentrer la vue", command=self.reset_view).pack(fill=tk.X)
-
-        tk.Label(self.sidebar, text="Randomisation Demandes :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
-        self.rand_type_var = tk.StringVar(value="Uniforme")
-        self.randomise_var = tk.BooleanVar(value=False)
-        cb_rand = ttk.Combobox(self.sidebar, textvariable=self.rand_type_var, values=("Uniforme", "Normale", "Exponentielle", "Toutes à 1"), state="readonly")
-        cb_rand.pack(fill=tk.X, pady=(0, 5))
-        tk.Checkbutton(self.sidebar, text="Randomiser Demandes", variable=self.randomise_var, bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
 
         res_frame = tk.LabelFrame(self.sidebar, text="Résultats", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         res_frame.pack(fill=tk.X, pady=10)
@@ -189,7 +182,7 @@ class InternalWindow(tk.Frame):
         try:
             results = run_single_simulation(
                 filepath=filepath, choix_algo="EPANET", choix_ori="Aucune", 
-                choix_capa="Vitesse Max", choix_dem="Uniforme", 
+                choix_capa="Vitesse Max", choix_dem="Inchanger", 
                 p_src=1.0, p_dem=1.0, v_res=2.0, v_arc=2.0, mult_epa=1.0, portion=1.0
             )
             self.nodes = results["nodes"]
@@ -222,9 +215,6 @@ class InternalWindow(tk.Frame):
                     messagebox.showwarning("Attention", "La seed doit être comprise entre 0 et 4294967295.")
                     return
 
-            rand_type = self.rand_type_var.get()
-            randomise_demande = self.randomise_var.get()
-
             if not self.current_filepath:
                 return
 
@@ -235,8 +225,7 @@ class InternalWindow(tk.Frame):
                 filepath=self.current_filepath, choix_algo=choix_algo, 
                 choix_ori=choix_ori, choix_capa=choix_capa, choix_dem=choix_dem, 
                 p_src=p_src, p_dem=p_dem, v_res=v_res, v_arc=v_arc, 
-                mult_epa=mult, portion=portion_val, rand_type=rand_type, 
-                randomise_demande=randomise_demande, seed=seed_val
+                mult_epa=mult, portion=portion_val, seed=seed_val
             )
 
             self.nodes = results["nodes"]

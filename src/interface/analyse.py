@@ -14,6 +14,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 
 from src.wrapper_tools import ffi_wrapper
 from src.creation_dataset import prepare_dataset
+
 from src.backend.run import run_analysis_worker
 from src.backend.extract_data import (
     ALGORITHMES, ORIENTATIONS, CAPACITES, DEMANDES, 
@@ -41,11 +42,13 @@ class AnalysisWindow(tk.Frame):
             "Réf - Mult. Dest. (Algo)": "ref_m_dst",
             "Réf - Vitesse": "ref_vitesse",
             "Réf - Portion": "ref_portion",
+            "Réf - Ecart Type": "ref_ecart_type",
             "Cible - Mult. Source": "tgt_m_src",
             "Cible - Mult. Dest. (EPA)": "tgt_m_epa",
             "Cible - Mult. Dest. (Algo)": "tgt_m_dst",
             "Cible - Vitesse": "tgt_vitesse",
             "Cible - Portion": "tgt_portion",
+            "Cible - Ecart Type": "tgt_ecart_type",
             "Satisfaisabilité Réf (%)": "sat_ref",
             "Satisfaisabilité Cible (%)": "sat_tgt",
             "Erreur Absolue ponderee (WAPE %)": "wape",
@@ -77,7 +80,8 @@ class AnalysisWindow(tk.Frame):
             ("m_dst_epa", "M.Dst(E)", "1.0", "1.0", "1"),
             ("m_dst", "M.Dst(A)", "1.0", "1.0", "1"),
             ("vitesse", "Vitesse", "2.0", "2.0", "1"),
-            ("portion", "Portion", "1.0", "1.0", "1")
+            ("portion", "Portion", "1.0", "1.0", "1"),
+            ("ecart_type", "Ecart-Type", "0.3", "0.3", "1")
         ]
         for i, (key, label, d_min, d_max, d_n) in enumerate(params):
             tk.Label(grid, text=label, bg="#ecf0f1", anchor="w", font=("Segoe UI", 8)).grid(row=i+1, column=0, sticky="w")
@@ -221,6 +225,7 @@ class AnalysisWindow(tk.Frame):
             ent.pack(side=tk.RIGHT)
             return ent
 
+        self.nb_rand_ecart = make_rand_entry(self.rand_f, "Ecart-Type (Norm/Exp) :", "0.3")
         self.nb_rand_uni = make_rand_entry(self.rand_f, "Nb. Uniforme :")
         self.nb_rand_norm = make_rand_entry(self.rand_f, "Nb. Normale :")
         self.nb_rand_exp = make_rand_entry(self.rand_f, "Nb. Exponentielle :")
@@ -233,7 +238,7 @@ class AnalysisWindow(tk.Frame):
         ttk.Combobox(self.ref_f, textvariable=self.ref_algo, values=ALGORITHMES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
         tk.Label(self.ref_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.ref_dem = tk.StringVar(value="Uniforme")
+        self.ref_dem = tk.StringVar(value="Inchanger")
         ttk.Combobox(self.ref_f, textvariable=self.ref_dem, values=DEMANDES, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
         tk.Label(self.ref_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
@@ -431,7 +436,7 @@ class AnalysisWindow(tk.Frame):
         ttk.Combobox(tgt_f, textvariable=algo_var, values=ALGORITHMES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
         tk.Label(tgt_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        dem_var = tk.StringVar(value="Uniforme")
+        dem_var = tk.StringVar(value="Inchanger")
         ttk.Combobox(tgt_f, textvariable=dem_var, values=DEMANDES, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
         tk.Label(tgt_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
@@ -563,7 +568,8 @@ class AnalysisWindow(tk.Frame):
             "m_epa": np.linspace(safe_float(ranges["m_dst_epa"][0]), safe_float(ranges["m_dst_epa"][1]), safe_int(ranges["m_dst_epa"][2])),
             "m_dst": np.linspace(safe_float(ranges["m_dst"][0]), safe_float(ranges["m_dst"][1]), safe_int(ranges["m_dst"][2])),
             "vitesse": np.linspace(safe_float(ranges["vitesse"][0], 2.0), safe_float(ranges["vitesse"][1], 2.0), safe_int(ranges["vitesse"][2])),
-            "portion": np.linspace(safe_float(ranges["portion"][0], 1.0), safe_float(ranges["portion"][1], 1.0), safe_int(ranges["portion"][2]))
+            "portion": np.linspace(safe_float(ranges["portion"][0], 1.0), safe_float(ranges["portion"][1], 1.0), safe_int(ranges["portion"][2])),
+            "ecart_type": np.linspace(safe_float(ranges["ecart_type"][0], 0.3), safe_float(ranges["ecart_type"][1], 0.3), safe_int(ranges["ecart_type"][2]))
         }
 
     def _extract_analysis_params(self):
@@ -591,22 +597,27 @@ class AnalysisWindow(tk.Frame):
 
         randomizations = []
         if self.run_base_var.get():
-            randomizations.append(("Aucune", None))
+            randomizations.append(("Aucune", None, 0.0))
         if self.run_all_one_var.get():
-            randomizations.append(("Toutes à 1", None))
+            randomizations.append(("Toutes à 1", None, 0.0))
             
         def parse_nb(ent):
             try: return max(0, int(ent.get()))
             except ValueError: return 0
+            
+        def parse_float(ent, default=0.3):
+            try: return float(ent.get())
+            except ValueError: return default
 
         nb_uni = parse_nb(self.nb_rand_uni)
         nb_norm = parse_nb(self.nb_rand_norm)
         nb_exp = parse_nb(self.nb_rand_exp)
+        rand_ecart = parse_float(self.nb_rand_ecart)
 
         MAX_SEED = 4294967295
-        for _ in range(nb_uni): randomizations.append(("Uniforme", random.randint(1, MAX_SEED)))
-        for _ in range(nb_norm): randomizations.append(("Normale", random.randint(1, MAX_SEED)))
-        for _ in range(nb_exp): randomizations.append(("Exponentielle", random.randint(1, MAX_SEED)))
+        for _ in range(nb_uni): randomizations.append(("Uniforme", random.randint(1, MAX_SEED), rand_ecart))
+        for _ in range(nb_norm): randomizations.append(("Normale", random.randint(1, MAX_SEED), rand_ecart))
+        for _ in range(nb_exp): randomizations.append(("Exponentielle", random.randint(1, MAX_SEED), rand_ecart))
 
         return {
             "ref_algo": self.ref_algo.get(),
@@ -623,12 +634,12 @@ class AnalysisWindow(tk.Frame):
         num_procs = int(self.num_proc_var.get())
         
         ref_grid = params['ref_grid']
-        ref_iters = len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
+        ref_iters = len(ref_grid["ecart_type"]) * len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
         
         tgt_iters = 0
         for t in params['targets']:
             t_grid = t['grid']
-            tgt_iters += len(t_grid["m_epa"]) * len(t_grid["m_dst"]) * len(t_grid["m_src"]) * len(t_grid["vitesse"]) * len(t_grid["portion"])
+            tgt_iters += len(t_grid["ecart_type"]) * len(t_grid["m_epa"]) * len(t_grid["m_dst"]) * len(t_grid["m_src"]) * len(t_grid["vitesse"]) * len(t_grid["portion"])
             
         sims_per_task = ref_iters * tgt_iters
         
@@ -637,8 +648,8 @@ class AnalysisWindow(tk.Frame):
         for filepath in self.loaded_files:
             if not self.file_vars[filepath].get(): continue
             filename = os.path.basename(filepath)
-            for rand_type, seed_val in params['randomizations']:
-                tasks.append((filepath, filename, file_flags[filepath], rand_type, seed_val, params))
+            for rand_type, seed_val, rand_ecart in params['randomizations']:
+                tasks.append((filepath, filename, file_flags[filepath], rand_type, seed_val, rand_ecart, params))
 
         total_simulations = len(tasks) * sims_per_task
 
@@ -899,10 +910,10 @@ class AnalysisWindow(tk.Frame):
         res = artist.custom_data[ind]
 
         msg = f"Fichier : {res['filename']}\nCible : {res['target_name']}\n\n"
-        msg += f"Paramètres Réf:\nSrc: {res['ref_m_src']:.2f} | Dst(EPA): {res['ref_m_epa']:.2f} | Dst(A): {res['ref_m_dst']:.2f} | Vit: {res['ref_vitesse']:.2f} | Por: {res['ref_portion']:.2f}\n\n"
-        msg += f"Paramètres Cible:\nSrc: {res['tgt_m_src']:.2f} | Dst(EPA): {res['tgt_m_epa']:.2f} | Dst(A): {res['tgt_m_dst']:.2f} | Vit: {res['tgt_vitesse']:.2f} | Por: {res['tgt_portion']:.2f}"
+        msg += f"Paramètres Réf:\nSrc: {res['ref_m_src']:.2f} | Dst(EPA): {res['ref_m_epa']:.2f} | Dst(A): {res['ref_m_dst']:.2f} | Vit: {res['ref_vitesse']:.2f} | Por: {res['ref_portion']:.2f} | Ecart: {res['ref_ecart_type']:.2f}\n\n"
+        msg += f"Paramètres Cible:\nSrc: {res['tgt_m_src']:.2f} | Dst(EPA): {res['tgt_m_epa']:.2f} | Dst(A): {res['tgt_m_dst']:.2f} | Vit: {res['tgt_vitesse']:.2f} | Por: {res['tgt_portion']:.2f} | Ecart: {res['tgt_ecart_type']:.2f}"
         
-        msg += f"\n\nRandomisation : {res.get('rand_type', 'Aucune')}"
+        msg += f"\n\nRandomisation Base : {res.get('rand_type', 'Aucune')}"
         if res.get('seed') is not None: msg += f" | Seed : {res['seed']}"
         
         if not messagebox.askyesno("Visualisation Croisée", msg + "\n\nVoulez-vous visualiser ce scénario en détail ?"):
@@ -921,7 +932,13 @@ class AnalysisWindow(tk.Frame):
             win.algo_var.set(tgt['algo'])
             win.ori_var.set(tgt['ori'])
             win.capa_var.set(tgt['capa'])
-            win.dem_var.set(tgt['dem'])
+            
+            # Application de la source de randomisation la plus explicite
+            rand_t = res.get('rand_type', 'Aucune')
+            if rand_t != "Aucune":
+                win.dem_var.set(rand_t)
+            else:
+                win.dem_var.set(tgt['dem'])
 
             win.inputs["Mult. Demande"].delete(0, tk.END)
             win.inputs["Mult. Demande"].insert(0, str(res["tgt_m_epa"]))
@@ -935,13 +952,12 @@ class AnalysisWindow(tk.Frame):
             win.inputs["Prop. Demande"].insert(0, str(res["tgt_m_dst"]))
             win.inputs["Portion"].delete(0, tk.END)
             win.inputs["Portion"].insert(0, str(res["tgt_portion"]))
+            win.inputs["Ecart-Type"].delete(0, tk.END)
+            win.inputs["Ecart-Type"].insert(0, str(res["tgt_ecart_type"]))
 
-            win.rand_type_var.set(res.get('rand_type', 'Aucune'))
             if res.get('seed') is not None:
                 win.inputs["Seed (Optionnel)"].delete(0, tk.END)
                 win.inputs["Seed (Optionnel)"].insert(0, str(res['seed']))
-            else:
-                win.randomise_var.set(False)
             
             win.trigger_run()
             return win

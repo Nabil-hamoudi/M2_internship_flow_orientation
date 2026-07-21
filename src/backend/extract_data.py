@@ -6,7 +6,7 @@ from src.wrapper_tools import analyse_tools
 ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
 ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 CAPACITES = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
-DEMANDES = ("Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
+DEMANDES = ("Inchanger", "Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
 COULEURS_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
 COULEURS_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)")
 
@@ -55,7 +55,6 @@ def extract_data(reseau):
         x1, y1 = analyse_tools.get_arc_source_position(reseau, idx_aller)
         x2, y2 = analyse_tools.get_arc_dest_position(reseau, idx_aller)
 
-        # Inversion visuelle si l'arc dominant est l'arc de retour
         if idx_retour in arcs_actifs:
             x1, y1, x2, y2 = x2, y2, x1, y1
 
@@ -85,12 +84,9 @@ def extract_dashboard_metrics(reseau):
     }
 
 def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
-                    r_src, r_epa, r_dst, r_v, r_p, 
-                    t_src, t_epa, t_dst, t_v, t_p):
-    """
-    Calcule les métriques comparatives entre le graphe de référence et le graphe cible.
-    (Utilisé par le système de Grid Search de l'Analyse).
-    """
+                    r_src, r_epa, r_dst, r_v, r_p, r_ecart,
+                    t_src, t_epa, t_dst, t_v, t_p, t_ecart):
+    """Calcule les métriques comparatives entre le graphe de référence et le graphe cible."""
     wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
     wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
     sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
@@ -109,8 +105,8 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
     return {
         "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
         "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
-        "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p,
-        "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p,
+        "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p, "ref_ecart_type": r_ecart,
+        "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p, "tgt_ecart_type": t_ecart,
         "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
         "jaccard": jaccard_d,  
         "arc_nul_ref": arcs_nul_ref.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
