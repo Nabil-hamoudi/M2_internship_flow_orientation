@@ -15,7 +15,7 @@ ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds
 CAPACITE = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 COULEUR_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
 COULEUR_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)")
-DEMANDE = ("Uniforme", "EPANET")
+DEMANDE = ("Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
 
 class InternalWindow(tk.Frame):
     def __init__(self, parent, app_manager, title="Réseau"):
@@ -305,17 +305,26 @@ class InternalWindow(tk.Frame):
     def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa, portion=1.0):
         ffi_wrapper.modif_multiplicateur(self.projet, mult_epa)
         reseau = None
+        demandes_epanet = ["EPANET", "Normale", "Exponentielle", "Toutes à 1"]
         
+        # Application de la distribution spécifique au modèle
+        if choix_dem == "Normale":
+            ffi_wrapper.randomise_demande_normale(self.projet)
+        elif choix_dem == "Exponentielle":
+            ffi_wrapper.randomise_demande_exponentielle(self.projet)
+        elif choix_dem == "Toutes à 1":
+            ffi_wrapper.set_demande_un(self.projet)
+            
         if choix_algo == "EPANET":
             ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
         else:                        
-            besoin_epanet = (choix_dem == "EPANET") or (choix_capa in ["EPANET", "EPANET Partiel"]) or (choix_ori in ["EPANET", "EPANET Partiel"])
+            besoin_epanet = (choix_dem in demandes_epanet) or (choix_capa in ["EPANET", "EPANET Partiel"]) or (choix_ori in ["EPANET", "EPANET Partiel"])
             if besoin_epanet:
                 ffi_wrapper.compute_epanet(self.projet)
             reseau = ffi_wrapper.import_epanet_graph(self.projet)
 
-            if choix_dem == "EPANET":
+            if choix_dem in demandes_epanet:
                 ffi_wrapper.get_epanet_demande(self.projet, reseau)
 
             match (choix_capa):
@@ -336,7 +345,8 @@ class InternalWindow(tk.Frame):
 
             self.compute_orientation(reseau, choix_ori, p_src, p_dem, portion)
             self.compute_algo(reseau, choix_algo, p_src, p_dem)
-            if choix_dem == "EPANET":
+            
+            if choix_dem in demandes_epanet:
                 ffi_wrapper.get_epanet_fulldemande(self.projet, reseau)
 
         ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / mult_epa)
