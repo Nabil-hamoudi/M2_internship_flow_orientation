@@ -1,31 +1,52 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from src.wrapper_tools import ffi_wrapper
-from src.wrapper_tools import analyse_tools
 import numpy as np
 import matplotlib
-matplotlib.use("TkAgg")
+import os
+import json
+import concurrent.futures
+import threading
+import queue
+
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-SOURCEDEST = ("Ford-Fulkerson", "Edmonds-Karp")
-ALGO = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-ORIEN = ("Aucune", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-CAPACITE = ("Vitesse Max", "EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-DEMANDE = ("Uniforme", "EPANET")
+from src.wrapper_tools import ffi_wrapper
+from src.creation_dataset import prepare_dataset
 
+from src.backend.run import run_analysis_worker
+from src.backend.extract_data import (
+    ALGORITHMES, ORIENTATIONS, CAPACITES, DEMANDES, 
+    FILETYPES_INP, FILETYPES_JSON, NpEncoder
+)
+
+matplotlib.use("TkAgg")
 
 class AnalysisWindow(tk.Frame):
     def __init__(self, parent, app_manager):
         super().__init__(parent, bg="white", bd=2, relief="groove")
         self.app_manager = app_manager
         self.projet = None
+        self.loaded_files = []
         self.results = []
-        
+        self.file_vars = {}  
+
+        self.prep_dir = os.path.join(os.getcwd(), "prepared_datasets")
+        os.makedirs(self.prep_dir, exist_ok=True)
+
         self.keys_map = {
-            "Mult. Source": "m_src",
-            "Mult. Dest. (EPA)": "m_dst_epa",
-            "Mult. Dest. (Algo)": "m_dst",
+            "Réf - Mult. Source": "ref_m_src",
+            "Réf - Mult. Dest. (EPA)": "ref_m_epa",
+            "Réf - Mult. Dest. (Algo)": "ref_m_dst",
+            "Réf - Vitesse": "ref_vitesse",
+            "Réf - Portion": "ref_portion",
+            "Réf - Ecart Type": "ref_ecart_type",
+            "Cible - Mult. Source": "tgt_m_src",
+            "Cible - Mult. Dest. (EPA)": "tgt_m_epa",
+            "Cible - Mult. Dest. (Algo)": "tgt_m_dst",
+            "Cible - Vitesse": "tgt_vitesse",
+            "Cible - Portion": "tgt_portion",
+            "Cible - Ecart Type": "tgt_ecart_type",
             "Satisfaisabilité Réf (%)": "sat_ref",
             "Satisfaisabilité Cible (%)": "sat_tgt",
             "Erreur Absolue ponderee (WAPE %)": "wape",
@@ -34,13 +55,43 @@ class AnalysisWindow(tk.Frame):
             "Portion Arcs Flow Nul Réf (%)": "arc_nul_ref",
             "Portion Arcs Flow Non Nul Réf (%)": "arc_non_nul_ref",
             "Portion Arcs Flow Nul Cible (%)": "arc_nul_cible",
-            "Portion Arcs Flow Non Nul Cible (%)": "arc_non_nul_cible"
+            "Portion Arcs Flow Non Nul Cible (%)": "arc_non_nul_cible",
+            "Liens mal non orientés (%)": "ratio_nul_tgt_ref",
+            "Liens mal orientés (%)": "ratio_inter_ref"
         }
 
         self.setup_ui()
         self.setup_bindings()
         self.place(x=100, y=100, width=1100, height=750)
         self.set_focus()
+
+    def create_grid_ui(self, parent):
+        grid = tk.Frame(parent, bg="#ecf0f1")
+        grid.pack(fill=tk.X, pady=2)
+        tk.Label(grid, text="Min", bg="#ecf0f1", width=5).grid(row=0, column=1)
+        tk.Label(grid, text="Max", bg="#ecf0f1", width=5).grid(row=0, column=2)
+        tk.Label(grid, text="Nb", bg="#ecf0f1", width=4).grid(row=0, column=3)
+
+        ranges = {}
+        params = [
+            ("m_src", "M.Src", "1.0", "1.0", "1"),
+            ("m_dst_epa", "M.Dst(E)", "1.0", "1.0", "1"),
+            ("m_dst", "M.Dst(A)", "1.0", "1.0", "1"),
+            ("vitesse", "Vitesse", "2.0", "2.0", "1"),
+            ("portion", "Portion", "1.0", "1.0", "1"),
+            ("ecart_type", "Ecart-Type", "0.3", "0.3", "1")
+        ]
+        for i, (key, label, d_min, d_max, d_n) in enumerate(params):
+            tk.Label(grid, text=label, bg="#ecf0f1", anchor="w", font=("Segoe UI", 8)).grid(row=i+1, column=0, sticky="w")
+            ent_min, ent_max, ent_n = tk.Entry(grid, width=5), tk.Entry(grid, width=5), tk.Entry(grid, width=4)
+            ent_min.insert(0, d_min)
+            ent_max.insert(0, d_max)
+            ent_n.insert(0, d_n)
+            ent_min.grid(row=i+1, column=1, padx=2, pady=1)
+            ent_max.grid(row=i+1, column=2, padx=2)
+            ent_n.grid(row=i+1, column=3, padx=2)
+            ranges[key] = (ent_min, ent_max, ent_n)
+        return ranges
 
     def setup_ui(self):
         self.title_bar = tk.Frame(self, bg="#8e44ad", relief="flat", bd=0, height=25)
@@ -54,119 +105,208 @@ class AnalysisWindow(tk.Frame):
         main_content = tk.Frame(self, bg="white")
         main_content.pack(fill=tk.BOTH, expand=True)
 
-        # 1. PANNEAU LATÉRAL AVEC SCROLLBAR
-        sidebar_container = tk.Frame(main_content, width=280, bg="#ecf0f1", relief="solid", bd=1)
-        sidebar_container.pack(side=tk.LEFT, fill=tk.Y)
-        sidebar_container.pack_propagate(False)
+        self.sidebar_container = tk.Frame(main_content, width=280, bg="#ecf0f1", relief="solid", bd=1)
+        self.sidebar_container.pack(side=tk.LEFT, fill=tk.Y)
+        self.sidebar_container.pack_propagate(False)
 
-        canvas_side = tk.Canvas(sidebar_container, bg="#ecf0f1", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(sidebar_container, orient="vertical", command=canvas_side.yview)
-        self.sidebar = tk.Frame(canvas_side, bg="#ecf0f1", padx=10, pady=10)
-
-        self.sidebar.bind("<Configure>", lambda e: canvas_side.configure(scrollregion=canvas_side.bbox("all")))
-        canvas_side.create_window((0, 0), window=self.sidebar, anchor="nw", width=260)
-        canvas_side.configure(yscrollcommand=scrollbar.set)
+        self.canvas_side = tk.Canvas(self.sidebar_container, bg="#ecf0f1", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.sidebar_container, orient="vertical", command=self.canvas_side.yview)
         
-        canvas_side.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.sidebar = tk.Frame(self.canvas_side, bg="#ecf0f1", padx=10, pady=10)
+        self.sidebar.bind("<Configure>", lambda e: self.canvas_side.configure(scrollregion=self.canvas_side.bbox("all")))
+        self.canvas_side.create_window((0, 0), window=self.sidebar, anchor="nw", width=260)
+        self.canvas_side.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas_side.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        tk.Button(self.sidebar, text="Charger Réseau (.inp)", command=self.load_file, bg="white").pack(fill=tk.X, pady=(0, 10))
+        def _on_mousewheel_analyse(event):
+            if event.num == 4 or getattr(event, 'delta', 0) > 0:
+                self.canvas_side.yview_scroll(-1, "units")
+            elif event.num == 5 or getattr(event, 'delta', 0) < 0:
+                self.canvas_side.yview_scroll(1, "units")
 
-        seed_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
-        seed_frame.pack(fill=tk.X, pady=(0, 5))
-        tk.Label(seed_frame, text="Seed (Opt.):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.seed_entry = tk.Entry(seed_frame, width=10)
-        self.seed_entry.pack(side=tk.LEFT, padx=2)
+        def _bind_scroll_analyse(e):
+            self.sidebar_container.bind_all("<MouseWheel>", _on_mousewheel_analyse)
+            self.sidebar_container.bind_all("<Button-4>", _on_mousewheel_analyse)
+            self.sidebar_container.bind_all("<Button-5>", _on_mousewheel_analyse)
 
-        tk.Button(self.sidebar, text="Randomiser Demandes", bg="#f39c12", fg="black", 
-                  font=("Segoe UI", 8, "bold"), command=self.randomise_demandes).pack(fill=tk.X, pady=(0, 10))
+        def _unbind_scroll_analyse(e):
+            self.sidebar_container.unbind_all("<MouseWheel>")
+            self.sidebar_container.unbind_all("<Button-4>")
+            self.sidebar_container.unbind_all("<Button-5>")
 
-        tk.Label(self.sidebar, text="Balayage (Grid Search)", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        grid = tk.Frame(self.sidebar, bg="#ecf0f1")
-        grid.pack(fill=tk.X, pady=2)
-        tk.Label(grid, text="Min", bg="#ecf0f1", width=5).grid(row=0, column=1)
-        tk.Label(grid, text="Max", bg="#ecf0f1", width=5).grid(row=0, column=2)
-        tk.Label(grid, text="Nb", bg="#ecf0f1", width=4).grid(row=0, column=3)
+        self.sidebar_container.bind("<Enter>", _bind_scroll_analyse)
+        self.sidebar_container.bind("<Leave>", _unbind_scroll_analyse)
 
-        self.ranges = {}
-        for i, (key, label) in enumerate([("m_src", "M.Src"), ("m_dst_epa", "M.Dst(E)"), ("m_dst", "M.Dst(A)")]):
-            tk.Label(grid, text=label, bg="#ecf0f1", anchor="w", font=("Segoe UI", 8)).grid(row=i+1, column=0, sticky="w")
-            ent_min, ent_max, ent_n = tk.Entry(grid, width=5), tk.Entry(grid, width=5), tk.Entry(grid, width=4)
-            ent_min.insert(0, "1.0")
-            ent_max.insert(0, "1.0")
-            ent_n.insert(0, "1")
-            ent_min.grid(row=i+1, column=1, padx=2, pady=1)
-            ent_max.grid(row=i+1, column=2, padx=2)
-            ent_n.grid(row=i+1, column=3, padx=2)
-            self.ranges[key] = (ent_min, ent_max, ent_n)
+        btn_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
+        btn_frame.pack(fill=tk.X, pady=(0, 5))
+        self.btn_load_files = tk.Button(btn_frame, text="Ajouter & Préparer Fichier(s)", command=self.load_files, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold"))
+        self.btn_load_files.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        
+        self.btn_load_dir = tk.Button(btn_frame, text="Ajouter & Préparer Dossier", command=self.load_directory, bg="#2ecc71", fg="black", font=("Segoe UI", 8, "bold"))
+        self.btn_load_dir.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
 
-        # --- MODÈLE RÉFÉRENCE ---
-        ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
-        ref_f.pack(fill=tk.X, pady=5)
-        tk.Label(ref_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        io_f = tk.Frame(self.sidebar, bg="#ecf0f1")
+        io_f.pack(fill=tk.X, pady=(0, 5))
+        self.btn_load_analysis = tk.Button(io_f, text="Ouvrir Analyse", command=self.load_analysis, bg="#f39c12", fg="white", font=("Segoe UI", 8, "bold"))
+        self.btn_load_analysis.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        self.btn_save_analysis = tk.Button(io_f, text="Sauvegarder", command=self.save_analysis, bg="#d35400", fg="white", font=("Segoe UI", 8, "bold"), state=tk.DISABLED)
+        self.btn_save_analysis.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
+
+        self.files_frame = tk.Frame(self.sidebar, bg="white", relief="sunken", bd=1)
+        self.files_frame.pack(fill=tk.X, pady=(0, 5))
+
+        self.hyd_f = tk.LabelFrame(self.sidebar, text="Préparation Hydraulique (EPANET)", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        self.hyd_f.pack(fill=tk.X, pady=(0, 10))
+
+        self.sim_mode = tk.StringVar(value="PDA")
+        tk.Radiobutton(self.hyd_f, text="Mode PDA", variable=self.sim_mode, value="PDA", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+        tk.Radiobutton(self.hyd_f, text="Mode DDA", variable=self.sim_mode, value="DDA", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
+
+        param_f = tk.Frame(self.hyd_f, bg="#ecf0f1")
+        param_f.pack(fill=tk.X, pady=2, padx=5)
+
+        tk.Label(param_f, text="P. Min:", bg="#ecf0f1", font=("Segoe UI", 7)).grid(row=0, column=0)
+        self.p_min_ent = tk.Entry(param_f, width=5)
+        self.p_min_ent.insert(0, "0.0")
+        self.p_min_ent.grid(row=0, column=1)
+        
+        tk.Label(param_f, text="P. Req:", bg="#ecf0f1", font=("Segoe UI", 7)).grid(row=0, column=2, padx=(5,0))
+        self.p_req_ent = tk.Entry(param_f, width=5)
+        self.p_req_ent.insert(0, "10.0")
+        self.p_req_ent.grid(row=0, column=3)
+        
+        tk.Label(param_f, text="P. Exp:", bg="#ecf0f1", font=("Segoe UI", 7)).grid(row=1, column=0, pady=2)
+        self.p_exp_ent = tk.Entry(param_f, width=5)
+        self.p_exp_ent.insert(0, "0.5")
+        self.p_exp_ent.grid(row=1, column=1, pady=2)
+
+        exclude_f = tk.LabelFrame(self.sidebar, text="Filtres d'exclusion et conditions", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        exclude_f.pack(fill=tk.X, pady=(0, 10))
+        self.exclude_tanks = tk.BooleanVar(value=False)
+        self.exclude_pumps = tk.BooleanVar(value=False)
+        self.exclude_valves = tk.BooleanVar(value=False)
+        
+        tk.Checkbutton(exclude_f, text="Exclure si Bassins (Tanks)", variable=self.exclude_tanks, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
+        tk.Checkbutton(exclude_f, text="Exclure si Pompes (Pumps)", variable=self.exclude_pumps, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
+        tk.Checkbutton(exclude_f, text="Exclure si Vannes (Valves)", variable=self.exclude_valves, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
+
+        res_count_f = tk.Frame(exclude_f, bg="#ecf0f1")
+        res_count_f.pack(fill=tk.X, padx=5, pady=(5, 5))
+        tk.Label(res_count_f, text="Nb. Réservoirs (Min-Max):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        self.min_res_ent = tk.Entry(res_count_f, width=4)
+        self.min_res_ent.insert(0, "1")
+        self.min_res_ent.pack(side=tk.LEFT, padx=2)
+        self.max_res_ent = tk.Entry(res_count_f, width=4)
+        self.max_res_ent.insert(0, "1")
+        self.max_res_ent.pack(side=tk.LEFT, padx=2)
+        
+        self.min_res_ent.bind("<KeyRelease>", self.update_plot)
+        self.max_res_ent.bind("<KeyRelease>", self.update_plot)
+
+        self.ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        self.ref_f.pack(fill=tk.X, pady=5)
+        
+        tk.Label(self.ref_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_algo = tk.StringVar(value="EPANET")
-        ttk.Combobox(ref_f, textvariable=self.ref_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(self.ref_f, textvariable=self.ref_algo, values=ALGORITHMES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
-        tk.Label(ref_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.ref_dem = tk.StringVar(value="Uniforme")
-        ttk.Combobox(ref_f, textvariable=self.ref_dem, values=DEMANDE, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        tk.Label(self.ref_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        self.ref_dem = tk.StringVar(value="Inchanger")
+        ttk.Combobox(self.ref_f, textvariable=self.ref_dem, values=DEMANDES, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
-        tk.Label(ref_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(self.ref_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_capa = tk.StringVar(value="Vitesse Max")
-        ttk.Combobox(ref_f, textvariable=self.ref_capa, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        ttk.Combobox(self.ref_f, textvariable=self.ref_capa, values=CAPACITES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
 
-        tk.Label(ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(self.ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_ori = tk.StringVar(value="Aucune")
-        ttk.Combobox(ref_f, textvariable=self.ref_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        ttk.Combobox(self.ref_f, textvariable=self.ref_ori, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
 
-        # --- MODÈLE CIBLE ---
-        tgt_f = tk.LabelFrame(self.sidebar, text="Modèle à Comparer (Cible)", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
-        tgt_f.pack(fill=tk.X, pady=5)
-        tk.Label(tgt_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.tgt_algo = tk.StringVar(value="Edmonds-Karp")
-        ttk.Combobox(tgt_f, textvariable=self.tgt_algo, values=ALGO, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        tk.Label(self.ref_f, text="Balayage Réf", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
+        self.ref_ranges = self.create_grid_ui(self.ref_f)
 
-        tk.Label(tgt_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.tgt_dem = tk.StringVar(value="Uniforme")
-        ttk.Combobox(tgt_f, textvariable=self.tgt_dem, values=DEMANDE, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
-
-        tk.Label(tgt_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.tgt_capa = tk.StringVar(value="Vitesse Max")
-        ttk.Combobox(tgt_f, textvariable=self.tgt_capa, values=CAPACITE, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        self.targets_container = tk.Frame(self.sidebar, bg="#ecf0f1")
+        self.targets_container.pack(fill=tk.X, pady=5)
         
-        tk.Label(tgt_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.tgt_ori = tk.StringVar(value="Aucune")
-        ttk.Combobox(tgt_f, textvariable=self.tgt_ori, values=ORIEN, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        self.target_counter = 0
+        self.target_ui_rows = []
+        self.target_configs = []
 
-        v_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
-        v_frame.pack(fill=tk.X, pady=5)
-        tk.Label(v_frame, text="V. Rés:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.v_res = tk.Entry(v_frame, width=5); self.v_res.insert(0, "3.0"); self.v_res.pack(side=tk.LEFT, padx=2)
-        tk.Label(v_frame, text="V. Arc:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.v_arc = tk.Entry(v_frame, width=5); self.v_arc.insert(0, "2.0"); self.v_arc.pack(side=tk.LEFT, padx=2)
+        self.btn_add_target = tk.Button(self.sidebar, text="➕ Ajouter un Modèle Cible", bg="#f39c12", font=("Segoe UI", 8, "bold"), command=self.add_target_ui)
+        self.btn_add_target.pack(fill=tk.X, pady=(0, 5))
+        
+        self.add_target_ui()
 
-        tk.Button(self.sidebar, text="Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis).pack(fill=tk.X, pady=10)
+        self.targets_list_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer les Cibles", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        self.targets_list_frame.pack(fill=tk.X, pady=(0, 5))
 
-        # --- TRACÉ MATPLOTLIB ---
+        self.run_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
+        self.run_frame.pack(fill=tk.X, pady=10)
+
+        proc_f = tk.Frame(self.run_frame, bg="#ecf0f1")
+        proc_f.pack(fill=tk.X, pady=(0, 5))
+        tk.Label(proc_f, text="Nb Processus:", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+        self.num_proc_var = tk.StringVar(value="4")
+        tk.Entry(proc_f, textvariable=self.num_proc_var, width=5).pack(side=tk.LEFT, padx=5)
+
+        self.btn_run = tk.Button(self.run_frame, text="Lancer l'Analyse", bg="#2980b9", fg="white", font=("Segoe UI", 9, "bold"), command=self.run_analysis)
+        self.btn_run.pack(fill=tk.X, pady=(0, 5))
+
+        self.btn_reset = tk.Button(self.run_frame, text="Réinitialiser & Déverrouiller", bg="#e74c3c", fg="white", font=("Segoe UI", 9, "bold"), command=self.reset_analysis)
+
         tk.Label(self.sidebar, text="Tracé du Graphe", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w")
         plot_opts = list(self.keys_map.keys())
+
+        tk.Label(self.sidebar, text="Type :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        self.plot_type_var = tk.StringVar(value="Nuage de points")
+        self.cb_type = ttk.Combobox(self.sidebar, textvariable=self.plot_type_var, values=["Nuage de points", "Histogramme (1D)", "Carte de chaleur (2D)"], state="readonly")
+        self.cb_type.pack(fill=tk.X, pady=(0, 5))
+        self.cb_type.bind("<<ComboboxSelected>>", self.update_plot)
         
         tk.Label(self.sidebar, text="Axe X :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.x_var = tk.StringVar(value="Mult. Dest. (EPA)")
-        cb_x = ttk.Combobox(self.sidebar, textvariable=self.x_var, values=plot_opts, state="readonly")
-        cb_x.pack(fill=tk.X); cb_x.bind("<<ComboboxSelected>>", self.update_plot)
+        self.x_var = tk.StringVar(value="Cible - Mult. Dest. (EPA)")
+        self.cb_x = ttk.Combobox(self.sidebar, textvariable=self.x_var, values=plot_opts, state="readonly")
+        self.cb_x.pack(fill=tk.X); self.cb_x.bind("<<ComboboxSelected>>", self.update_plot)
 
         tk.Label(self.sidebar, text="Axe Y :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.y_var = tk.StringVar(value="Satisfaisabilité Cible (%)")
-        cb_y = ttk.Combobox(self.sidebar, textvariable=self.y_var, values=plot_opts, state="readonly")
-        cb_y.pack(fill=tk.X); cb_y.bind("<<ComboboxSelected>>", self.update_plot)
+        self.cb_y = ttk.Combobox(self.sidebar, textvariable=self.y_var, values=plot_opts, state="readonly")
+        self.cb_y.pack(fill=tk.X); self.cb_y.bind("<<ComboboxSelected>>", self.update_plot)
 
-        tk.Label(self.sidebar, text="Couleur :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
-        self.c_var = tk.StringVar(value="Aucune")
-        cb_c = ttk.Combobox(self.sidebar, textvariable=self.c_var, values=["Aucune"] + plot_opts, state="readonly")
-        cb_c.pack(fill=tk.X); cb_c.bind("<<ComboboxSelected>>", self.update_plot)
+        tk.Label(self.sidebar, text="Paramètre / Couleur :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        self.c_var = tk.StringVar(value="Cibles")
+        self.cb_c = ttk.Combobox(self.sidebar, textvariable=self.c_var, values=["Cibles", "Fichiers"] + plot_opts, state="readonly")
+        self.cb_c.pack(fill=tk.X); self.cb_c.bind("<<ComboboxSelected>>", self.update_plot)
 
-        # 2. ZONE DE DESSIN MATPLOTLIB
+        bins_f = tk.Frame(self.sidebar, bg="#ecf0f1")
+        bins_f.pack(fill=tk.X, pady=5)
+        tk.Label(bins_f, text="Nb divisions (Barres/Grille):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
+        self.bins_var = tk.Entry(bins_f, width=5)
+        self.bins_var.insert(0, "15")
+        self.bins_var.pack(side=tk.RIGHT, padx=5)
+        self.bins_var.bind("<Return>", self.update_plot)
+
+        tk.Label(self.sidebar, text="Statistiques", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
+        
+        stat_f = tk.Frame(self.sidebar, bg="#ecf0f1")
+        stat_f.pack(fill=tk.X, pady=2)
+        
+        self.show_mean_y_var = tk.BooleanVar(value=False)
+        self.show_median_y_var = tk.BooleanVar(value=False)
+        self.show_mean_x_var = tk.BooleanVar(value=False)
+        self.show_median_x_var = tk.BooleanVar(value=False)
+        
+        self.chk_mean_y = tk.Checkbutton(stat_f, text="Moy. Y", variable=self.show_mean_y_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot)
+        self.chk_mean_y.grid(row=0, column=0, sticky="w")
+        self.chk_median_y = tk.Checkbutton(stat_f, text="Méd. Y", variable=self.show_median_y_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot)
+        self.chk_median_y.grid(row=0, column=1, sticky="w")
+        self.chk_mean_x = tk.Checkbutton(stat_f, text="Moy. X", variable=self.show_mean_x_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot)
+        self.chk_mean_x.grid(row=1, column=0, sticky="w")
+        self.chk_median_x = tk.Checkbutton(stat_f, text="Méd. X", variable=self.show_median_x_var, bg="#ecf0f1", font=("Segoe UI", 8), command=self.update_plot)
+        self.chk_median_x.grid(row=1, column=1, sticky="w")
+
         self.plot_frame = tk.Frame(main_content, bg="white")
         self.plot_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
@@ -182,15 +322,104 @@ class AnalysisWindow(tk.Frame):
         self.toolbar.update()
 
         self.canvas.mpl_connect('pick_event', self.on_pick)
+        self.scatters = []
 
-        # Barre d'état
         self.status_bar = tk.Frame(self, bg="#bdc3c7", height=20)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.status_label = tk.Label(self.status_bar, text="Prêt", bg="#bdc3c7", font=("Segoe UI", 8))
         self.status_label.pack(side=tk.LEFT, padx=5)
+        self.progress_bar = ttk.Progressbar(self.status_bar, orient="horizontal", length=250, mode="determinate")
 
         self.grip = tk.Label(self.status_bar, text="◢", bg="#bdc3c7", fg="#7f8c8d", cursor="bottom_right_corner")
         self.grip.pack(side=tk.RIGHT, anchor="se", padx=2)
+
+    def _set_state(self, widget, freeze):
+        state = tk.DISABLED if freeze else tk.NORMAL
+        
+        if isinstance(widget, ttk.Combobox):
+            widget.configure(state=tk.DISABLED if freeze else "readonly")
+        elif isinstance(widget, (tk.Entry, tk.Button, tk.Radiobutton, tk.Checkbutton)):
+            widget.configure(state=state)
+            
+        for child in widget.winfo_children():
+            self._set_state(child, freeze)
+
+    def freeze_ui(self, freeze=True):
+        state = tk.DISABLED if freeze else tk.NORMAL
+        
+        self.btn_load_files.config(state=state)
+        self.btn_load_dir.config(state=state)
+        self.btn_run.config(state=state)
+        self.btn_add_target.config(state=state)
+        
+        if freeze:
+            self.btn_reset.pack(fill=tk.X, pady=(0, 5))
+        else:
+            self.btn_reset.pack_forget()
+
+        self._set_state(self.hyd_f, freeze)
+        self._set_state(self.ref_f, freeze)
+
+        for row in self.target_ui_rows:
+            row['btn_delete'].config(state=state)
+            for child in row['frame'].winfo_children():
+                if child != row['header_f']:
+                    self._set_state(child, freeze)
+
+    def reset_analysis(self):
+        self.results = []
+        self.freeze_ui(False)
+        self.update_plot()
+        self.status_label.config(text="Analyse réinitialisée. Prêt pour de nouvelles modifications.")
+
+    def add_target_ui(self):
+        self.target_counter += 1
+        current_uid = self.target_counter
+
+        tgt_f = tk.LabelFrame(self.targets_container, text=f"Modèle Cible {len(self.target_ui_rows)+1}", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
+        tgt_f.pack(fill=tk.X, pady=5)
+
+        header_f = tk.Frame(tgt_f, bg="#ecf0f1")
+        header_f.pack(fill=tk.X, padx=5, pady=(2, 5))
+
+        var = tk.BooleanVar(value=True)
+        tk.Checkbutton(header_f, text="Afficher", variable=var, bg="#ecf0f1", font=("Segoe UI", 8, "bold"), fg="#27ae60", command=self.update_plot).pack(side=tk.LEFT)
+
+        def remove_self():
+            tgt_f.destroy()
+            self.target_ui_rows = [r for r in self.target_ui_rows if r['uid'] != current_uid]
+            if hasattr(self, 'target_configs'):
+                self.target_configs = [c for c in self.target_configs if c['uid'] != current_uid]
+            self.update_plot()
+
+            for i, r in enumerate(self.target_ui_rows):
+                r['frame'].config(text=f"Modèle Cible {i+1}")
+
+        btn_del = tk.Button(header_f, text="❌", fg="red", bg="#ecf0f1", bd=0, font=("Segoe UI", 8), command=remove_self)
+        btn_del.pack(side=tk.RIGHT)
+
+        tk.Label(tgt_f, text="Algo:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        algo_var = tk.StringVar(value="Edmonds-Karp")
+        ttk.Combobox(tgt_f, textvariable=algo_var, values=ALGORITHMES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+
+        tk.Label(tgt_f, text="Demande:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        dem_var = tk.StringVar(value="Inchanger")
+        ttk.Combobox(tgt_f, textvariable=dem_var, values=DEMANDES, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+
+        tk.Label(tgt_f, text="Capacite:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        capa_var = tk.StringVar(value="Vitesse Max")
+        ttk.Combobox(tgt_f, textvariable=capa_var, values=CAPACITES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+        
+        tk.Label(tgt_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        ori_var = tk.StringVar(value="Aucune")
+        ttk.Combobox(tgt_f, textvariable=ori_var, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+        
+        tk.Label(tgt_f, text="Balayage Cible", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
+        ranges = self.create_grid_ui(tgt_f)
+
+        self.target_ui_rows.append({
+            'frame': tgt_f, 'header_f': header_f, 'btn_delete': btn_del, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid, 'ranges': ranges
+        })
 
     def setup_bindings(self):
         self.title_bar.bind("<ButtonPress-1>", self.start_drag_window)
@@ -210,8 +439,6 @@ class AnalysisWindow(tk.Frame):
         self.title_label.config(bg=color)
 
     def close_window(self):
-        if self.projet:
-            ffi_wrapper.free_project(self.projet)
         self.app_manager.remove_window(self)
         self.destroy()
 
@@ -230,247 +457,551 @@ class AnalysisWindow(tk.Frame):
     def do_resize_window(self, event):
         self.place(width=max(600, self.start_w + event.x_root - self.start_x), height=max(400, self.start_h + event.y_root - self.start_y))
 
-    def load_file(self):
-        path = filedialog.askopenfilename(filetypes=[("EPANET", "*.inp")])
-        if path:
-            self.current_file = path
-            self.projet = ffi_wrapper.create_epanet_project(path)
-            filename = path.split("/")[-1].split("\\")[-1]
-            self.title_label.config(text=f"|  Analyse : {filename}")
-            self.status_label.config(text=f"Fichier {filename} chargé.")
-
-    def randomise_demandes(self):
-        if not self.projet:
-            messagebox.showinfo("Info", "Veuillez charger un réseau d'abord.")
+    def _prepare_and_load(self, raw_paths):
+        mode = self.sim_mode.get()
+        try:
+            p_min = float(self.p_min_ent.get())
+            p_req = float(self.p_req_ent.get())
+            p_exp = float(self.p_exp_ent.get())
+        except ValueError:
+            messagebox.showerror("Erreur", "Veuillez entrer des valeurs numériques valides pour les pressions.")
             return
 
-        seed_str = self.seed_entry.get().strip()
+        self.status_label.config(text="Préparation des fichiers en cours...")
+        self.update_idletasks()
 
-        if seed_str:
+        count = 0
+        for p in raw_paths:
+            wn = prepare_dataset.open_file_epa_int(p)
+            if wn:
+                prepare_dataset.convertir_unites(wn, 'LPM')
+                prepare_dataset.change_mode(wn, mode, p_min, p_req, p_exp)
+
+                base_name = os.path.basename(p)
+                unique_name = f"prep_{len(self.loaded_files)}_{base_name}"
+                dest_path = os.path.join(self.prep_dir, unique_name)
+
+                if prepare_dataset.write_file(wn, dest_path):
+                    if dest_path not in self.loaded_files:
+                        self.loaded_files.append(dest_path)
+                        
+                        var = tk.BooleanVar(value=True)
+                        self.file_vars[dest_path] = var
+                        cb = tk.Checkbutton(self.files_frame, text=unique_name, variable=var, bg="white", font=("Segoe UI", 7), anchor="w", command=self.update_plot)
+                        cb.pack(fill=tk.X)
+                        
+                        count += 1
+
+        self.title_label.config(text=f"|  Analyse : {len(self.loaded_files)} fichier(s)")
+        self.status_label.config(text=f"{count} fichier(s) préparé(s) dans le dossier séparé.")
+        if count > 0:
+            messagebox.showinfo("Succès", f"{count} fichier(s) converti(s) en {mode} et ajouté(s) à la liste d'analyse.\n(Stockés dans : {self.prep_dir})")
+
+    def load_directory(self):
+        directory = filedialog.askdirectory()
+        if directory:
+            paths_to_prepare = []
             try:
-                seed_val = int(seed_str)
-            except ValueError:
-                messagebox.showwarning("Attention", "La seed doit être un nombre entier.")
-                return
-        else:
-            seed_val = None
+                for root, dirs, files in os.walk(directory):
+                    if os.path.abspath(self.prep_dir) == os.path.abspath(root):
+                        continue
 
-        ffi_wrapper.set_random_seed(seed_val)
-        ffi_wrapper.randomise_demande(self.projet)
+                    for file in files:
+                        if file.lower().endswith('.inp'):
+                            paths_to_prepare.append(os.path.normpath(os.path.join(root, file)))
 
-        self.status_label.config(text=f"Demandes randomisées (Seed: {seed_val}).")
+                if paths_to_prepare:
+                    self._prepare_and_load(paths_to_prepare)
+                else:
+                    messagebox.showinfo("Info", "Aucun fichier .inp trouvé dans le dossier sélectionné.")
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible de lire l'arborescence : {str(e)}")
 
-    def compute_algo(self, reseau, choix, m_src, m_dst):
-        match (choix):
-            case "Ford-Fulkerson":
-                ffi_wrapper.ajout_source_destination(reseau)
-                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-                ffi_wrapper.ajout_capacite_source(reseau, m_src)
-                ffi_wrapper.nullifier_flow(reseau)
-                ffi_wrapper.compute_flow_ford_fukerson(reseau)
-                ffi_wrapper.delete_source_destination(reseau)
-            case "Edmonds-Karp":
-                ffi_wrapper.ajout_source_destination(reseau)
-                ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
-                ffi_wrapper.ajout_capacite_source(reseau, m_src)
-                ffi_wrapper.nullifier_flow(reseau)
-                ffi_wrapper.compute_flow_edmonds_karp(reseau)
-                ffi_wrapper.delete_source_destination(reseau)
+    def load_files(self):
+        paths = filedialog.askopenfilenames(filetypes=FILETYPES_INP)
+        if paths:
+            self._prepare_and_load(paths)
 
-    def compute_orientation(self, reseau, choix_ori, p_src, p_dem):
-        match (choix_ori):
-            case "EPANET":
-                ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau)
-            case "Aucune":
-                None
-            case _:
-                self.compute_algo(reseau, choix_ori, p_src, p_dem)
-                ffi_wrapper.fix_capacite_flow_oriente(reseau)
+    def _extract_grid(self, ranges):
+        def safe_float(v, default=1.0):
+            try: return float(v.get())
+            except: return default
+        def safe_int(v, default=1):
+            try: return max(1, int(v.get()))
+            except: return default
 
-    def compute_network(self, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc):
-        reseau = None
+        return {
+            "m_src": np.linspace(safe_float(ranges["m_src"][0]), safe_float(ranges["m_src"][1]), safe_int(ranges["m_src"][2])),
+            "m_epa": np.linspace(safe_float(ranges["m_dst_epa"][0]), safe_float(ranges["m_dst_epa"][1]), safe_int(ranges["m_dst_epa"][2])),
+            "m_dst": np.linspace(safe_float(ranges["m_dst"][0]), safe_float(ranges["m_dst"][1]), safe_int(ranges["m_dst"][2])),
+            "vitesse": np.linspace(safe_float(ranges["vitesse"][0], 2.0), safe_float(ranges["vitesse"][1], 2.0), safe_int(ranges["vitesse"][2])),
+            "portion": np.linspace(safe_float(ranges["portion"][0], 1.0), safe_float(ranges["portion"][1], 1.0), safe_int(ranges["portion"][2])),
+            "ecart_type": np.linspace(safe_float(ranges["ecart_type"][0], 0.3), safe_float(ranges["ecart_type"][1], 0.3), safe_int(ranges["ecart_type"][2]))
+        }
+
+    def _extract_analysis_params(self):
+        self.target_configs = []
+        clean_targets_for_mp = []
         
-        if choix_algo == "EPANET":
-            ffi_wrapper.compute_epanet(self.projet)
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
-        else:            
-            besoin_epanet = (choix_dem == "EPANET") or (choix_capa == "EPANET") or (choix_ori == "EPANET")
-            if besoin_epanet:
-                ffi_wrapper.compute_epanet(self.projet)
+        for i, row in enumerate(self.target_ui_rows):
+            name = f"C{i+1}: {row['algo'].get()[:4]} | O:{row['ori'].get()[:4]} | C:{row['capa'].get()[:4]}"
             
-            reseau = ffi_wrapper.import_epanet_graph(self.projet)
+            self.target_configs.append({
+                "uid": row['uid'], "name": name,
+                "algo": row['algo'].get(), "ori": row['ori'].get(),
+                "capa": row['capa'].get(), "dem": row['dem'].get(),
+                "var": row['var'],
+                "grid": self._extract_grid(row['ranges'])
+            })
+            
+            if row['var'].get():
+                clean_targets_for_mp.append({
+                    "uid": row['uid'], "name": name,
+                    "algo": row['algo'].get(), "ori": row['ori'].get(),
+                    "capa": row['capa'].get(), "dem": row['dem'].get(),
+                    "grid": self._extract_grid(row['ranges'])
+                })
 
-            if choix_dem == "EPANET":
-                ffi_wrapper.get_epanet_demande(self.projet, reseau)
+        # Utilise un seul scénario de base afin que le backend puisse continuer de fonctionner
+        randomizations = [("Aucune", None, 0.0)]
 
-            match (choix_capa):
-                case "EPANET":
-                    ffi_wrapper.reget_epanet_flow(self.projet, reseau)
-                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                case "Vitesse Max":
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                case _:
-                    ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-                    self.compute_algo(reseau, choix_capa, p_src, p_dem)
-                    ffi_wrapper.fix_capacite_flow_calcule(reseau)
-                    ffi_wrapper.nullifier_flow(reseau)
-                    
-
-            self.compute_orientation(reseau, choix_ori, p_src, p_dem)
-            self.compute_algo(reseau, choix_algo, p_src, p_dem)
-            if choix_dem == "EPANET":
-                ffi_wrapper.get_epanet_fulldemande(self.projet, reseau)
-
-        return reseau
+        return {
+            "ref_algo": self.ref_algo.get(),
+            "ref_capa": self.ref_capa.get(),
+            "ref_ori": self.ref_ori.get(),
+            "ref_dem": self.ref_dem.get(),
+            "ref_grid": self._extract_grid(self.ref_ranges),
+            "randomizations": randomizations,
+            "targets": clean_targets_for_mp
+        }
 
     def run_analysis(self):
-        if not self.projet:
-            messagebox.showinfo("Info", "Veuillez charger un fichier .inp d'abord.")
+        params = self._extract_analysis_params()
+        num_procs = int(self.num_proc_var.get())
+        
+        ref_grid = params['ref_grid']
+        ref_iters = len(ref_grid["ecart_type"]) * len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
+        
+        tgt_iters = 0
+        for t in params['targets']:
+            t_grid = t['grid']
+            tgt_iters += len(t_grid["ecart_type"]) * len(t_grid["m_epa"]) * len(t_grid["m_dst"]) * len(t_grid["m_src"]) * len(t_grid["vitesse"]) * len(t_grid["portion"])
+            
+        sims_per_task = ref_iters * tgt_iters
+        
+        tasks = []
+        file_flags = {fp: prepare_dataset.file_contains_elements(fp) for fp in self.loaded_files}
+        for filepath in self.loaded_files:
+            if not self.file_vars[filepath].get(): continue
+            filename = os.path.basename(filepath)
+            for rand_type, seed_val, rand_ecart in params['randomizations']:
+                tasks.append((filepath, filename, file_flags[filepath], rand_type, seed_val, rand_ecart, params))
+
+        total_simulations = len(tasks) * sims_per_task
+
+        self.freeze_ui(True)
+        self.progress_queue = queue.Queue()
+        
+        self.progress_bar.pack(side=tk.LEFT, padx=10)
+        self.progress_bar["value"] = 0
+        self.progress_bar["maximum"] = total_simulations
+        print(f"\n[--- Lancement de l'analyse : {total_simulations} simulations prévues ---]")
+
+        threading.Thread(target=self._run_multiprocessing, args=(tasks, num_procs, sims_per_task, total_simulations), daemon=True).start()
+        self.after(100, self._check_progress)
+
+    def _run_multiprocessing(self, tasks, num_procs, sims_per_task, total_simulations):
+        all_results = []
+        completed_sims = 0
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=num_procs) as executor:
+                futures = [executor.submit(run_analysis_worker, t) for t in tasks]
+                for f in concurrent.futures.as_completed(futures):
+                    all_results.extend(f.result())
+                    completed_sims += sims_per_task
+                    self.progress_queue.put(('step', completed_sims, total_simulations))
+                    
+            self.progress_queue.put(('done', all_results))
+        except Exception as e:
+            self.progress_queue.put(('error', str(e)))
+
+    def _check_progress(self):
+        import sys
+        try:
+            while True:
+                msg = self.progress_queue.get_nowait()
+                
+                if isinstance(msg, tuple) and msg[0] == 'step':
+                    completed, total = msg[1], msg[2]
+                    
+                    self.progress_bar["value"] = completed
+                    self.status_label.config(text=f"Calcul en cours : {completed}/{total} simulation(s)...")
+                    
+                    percent = (completed / total) * 100 if total > 0 else 0
+                    bar_len = 40
+                    filled_len = int(bar_len * completed // total) if total > 0 else 0
+                    bar = '█' * filled_len + '-' * (bar_len - filled_len)
+                    sys.stdout.write(f'\rProgression |{bar}| {percent:.1f}% ({completed}/{total})')
+                    sys.stdout.flush()
+                    
+                elif isinstance(msg, tuple) and msg[0] == 'done':
+                    self.results = msg[1]
+                    self.rebuild_filters_from_results()
+                    self.btn_save_analysis.config(state=tk.NORMAL)
+                    self.progress_bar.pack_forget()
+                    self.update_plot()
+                    self.status_label.config(text=f"Analyse terminée avec succès ({len(self.results)} résultats).")
+                    print("\n[--- Analyse terminée ! ---]\n")
+                    return
+                    
+                elif isinstance(msg, tuple) and msg[0] == 'error':
+                    from tkinter import messagebox
+                    messagebox.showerror("Erreur", str(msg[1]))
+                    self.progress_bar.pack_forget()
+                    self.freeze_ui(False)
+                    print(f"\n[X] Erreur d'analyse : {msg[1]}\n")
+                    return
+                    
+        except queue.Empty:
+            pass
+            
+        self.after(100, self._check_progress)
+
+    def update_plot(self, event=None):
+        if not hasattr(self, 'results') or not self.results:
             return
+
+        plot_type = self.plot_type_var.get()
+        
+        if plot_type == "Histogramme (1D)":
+            self.cb_y.config(state="disabled")
+            self.cb_c.config(state="disabled")
+            self.chk_mean_y.config(state="disabled")
+            self.chk_median_y.config(state="disabled")
+        else:
+            self.cb_y.config(state="readonly")
+            self.cb_c.config(state="readonly")
+            self.chk_mean_y.config(state="normal")
+            self.chk_median_y.config(state="normal")
+
+        filtered_results = []
+        try:
+            min_res = int(self.min_res_ent.get()) if self.min_res_ent.get().strip() else 0
+            max_res = int(self.max_res_ent.get()) if self.max_res_ent.get().strip() else 999999
+        except ValueError:
+            min_res, max_res = 0, 999999
+
+        for r in self.results:
+            if r['filepath'] in self.file_vars and not self.file_vars[r['filepath']].get():
+                continue
+
+            flags = r['flags']
+            
+            tgt_config = next((c for c in self.target_configs if c['uid'] == r['target_uid']), None)
+            if not tgt_config: continue
+            if not tgt_config['var'].get(): continue 
+            
+            if self.exclude_tanks.get() and flags.get("tanks", False): continue
+            if self.exclude_pumps.get() and flags.get("pumps", False): continue
+            if self.exclude_valves.get() and flags.get("valves", False): continue
+            if not (min_res <= flags.get("reservoir_count", 0) <= max_res): continue
+            
+            filtered_results.append(r)
+
+        if not filtered_results:
+            self.fig.clf()
+            self.ax = self.fig.add_subplot(111)
+            self.ax.text(0.5, 0.5, 'Aucune donnée correspondante\naux filtres actuels.', ha='center', va='center', color='red')
+            self.canvas.draw()
+            return
+
+        x_k = self.keys_map[self.x_var.get()]
+        y_k = self.keys_map.get(self.y_var.get(), None)
+        plot_type = self.plot_type_var.get()
 
         try:
-            v_res, v_arc = float(self.v_res.get()), float(self.v_arc.get())
-            algo_ref, capa_ref, ori_ref, dem_ref = self.ref_algo.get(), self.ref_capa.get(), self.ref_ori.get(), self.ref_dem.get()
-            algo_tgt, capa_tgt, ori_tgt, dem_tgt = self.tgt_algo.get(), self.tgt_capa.get(), self.tgt_ori.get(), self.tgt_dem.get()
+            nb_bins = int(self.bins_var.get())
+            if nb_bins <= 0: nb_bins = 15
+        except ValueError:
+            nb_bins = 15
+
+        self.fig.clf()
+        self.ax = self.fig.add_subplot(111)
+        self.scatters = []
+
+        all_x_data = [r[x_k] for r in filtered_results]
+        all_y_data = [r[y_k] for r in filtered_results] if y_k else []
+
+        if plot_type == "Histogramme (1D)":
+            self.ax.hist(all_x_data, bins=nb_bins, color='#3498db', edgecolor='black', alpha=0.8)
+            self.ax.set_ylabel("Nombre de réseaux (Fréquence)", fontweight='bold')
+
+        elif plot_type == "Carte de chaleur (2D)":
+            c_selection = self.c_var.get()
             
-            src_min, src_max, src_n = map(float, [self.ranges["m_src"][i].get() for i in range(3)])
-            epa_min, epa_max, epa_n = map(float, [self.ranges["m_dst_epa"][i].get() for i in range(3)])
-            dst_min, dst_max, dst_n = map(float, [self.ranges["m_dst"][i].get() for i in range(3)])
+            if c_selection in ["Cibles", "Fichiers", "Aucune"]:
+                c_k = None
+            else:
+                c_k = self.keys_map.get(c_selection)
 
-            arr_src = np.linspace(src_min, src_max, int(src_n))
-            arr_epa = np.linspace(epa_min, epa_max, int(epa_n))
-            arr_dst = np.linspace(dst_min, dst_max, int(dst_n))
+            H_count, xedges, yedges = np.histogram2d(all_x_data, all_y_data, bins=nb_bins)
 
-            self.results = []
-            total_iters = len(arr_src) * len(arr_epa) * len(arr_dst)
-            current_iter = 0
-            graph_ref = None
-            graph_tgt = None
+            if c_k:
+                c_data = [r[c_k] for r in filtered_results]
+                H_sum, _, _ = np.histogram2d(all_x_data, all_y_data, bins=nb_bins, weights=c_data)
 
-            for m_epa in arr_epa:
-                ffi_wrapper.modif_multiplicateur(self.projet, m_epa)
-                if algo_ref == "EPANET":
-                    graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, 1.0, 1.0, 1.0, 1.0)
-                if algo_tgt == "EPANET":
-                    graph_tgt = self.compute_network(algo_tgt, ori_tgt, capa_tgt, dem_tgt, 1.0, 1.0, 1.0, 1.0)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    Z = np.true_divide(H_sum, H_count)
+            else:
+                Z = H_count
 
-                for m_dst in arr_dst:
-                    for m_src in arr_src:
-                        current_iter += 1
-                        self.status_label.config(text=f"Simulation... {current_iter}/{total_iters}")
-                        self.update_idletasks()
+            Z[H_count == 0] = np.nan
 
-                        if algo_ref != "EPANET":
-                            if graph_ref is not None:
-                                ffi_wrapper.free_graph(graph_ref)
-                            graph_ref = self.compute_network(algo_ref, ori_ref, capa_ref, dem_ref, m_src, m_dst, v_res, v_arc)
-                        if algo_tgt != "EPANET":
-                            if graph_tgt is not None:
-                                ffi_wrapper.free_graph(graph_tgt)
-                            graph_tgt = self.compute_network(algo_tgt, ori_tgt, capa_tgt, dem_tgt, m_src, m_dst, v_res, v_arc)
+            im = self.ax.imshow(Z.T, cmap='plasma', aspect='auto', origin='lower')
 
-                        wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
-                        wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
-                        sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
-                        sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
-                        jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
-                        arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / analyse_tools.get_n_arcs_no(graph_ref)) * 100
-                        arcs_nul_ref = 100 - arcs_non_nul_ref
-                        arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / analyse_tools.get_n_arcs_no(graph_tgt)) * 100
-                        arcs_nul_tgt = 100 - arcs_non_nul_tgt
+            x_centers = (xedges[:-1] + xedges[1:]) / 2
+            y_centers = (yedges[:-1] + yedges[1:]) / 2
+            
+            self.ax.set_xticks(np.arange(len(x_centers)))
+            self.ax.set_yticks(np.arange(len(y_centers)))
+            
+            def format_label(val): return f"{val:.2f}"
+            self.ax.set_xticklabels([format_label(v) for v in x_centers], rotation=45, ha='right', fontsize=8)
+            self.ax.set_yticklabels([format_label(v) for v in y_centers], fontsize=8)
+            
+            cbar = self.fig.colorbar(im, ax=self.ax)
+            cbar.set_label(f"Moyenne : {c_selection}" if c_k else "Densité (Nombre de réseaux)", fontsize=9)
 
-                        self.results.append({
-                            "m_src": m_src, "m_dst_epa": m_epa, "m_dst": m_dst,
-                            "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
-                            "jaccard": jaccard_d, "arc_nul_ref": arcs_nul_ref,
-                            "arc_non_nul_ref" : arcs_non_nul_ref, "arc_nul_cible": arcs_nul_tgt,
-                            "arc_non_nul_cible": arcs_non_nul_tgt
-                        })
+        else:
+            c_selection = self.c_var.get()
+            
+            if c_selection == "Cibles" or c_selection == "Aucune":
+                unique_targets = list(dict.fromkeys([r['target_name'] for r in filtered_results]))
+                colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f1c40f', '#e67e22', '#1abc9c', '#34495e']
+                
+                for i, t_name in enumerate(unique_targets):
+                    t_res = [r for r in filtered_results if r['target_name'] == t_name]
+                    x_d = [r[x_k] for r in t_res]
+                    y_d = [r[y_k] for r in t_res]
+                    sc = self.ax.scatter(x_d, y_d, label=t_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
+                    sc.custom_data = t_res 
+                    self.scatters.append(sc)
 
-                ffi_wrapper.modif_multiplicateur(self.projet, 1.0 / m_epa)
+            elif c_selection == "Fichiers":
+                unique_files = list(dict.fromkeys([r['filename'] for r in filtered_results]))
+                colors = ['#e67e22', '#1abc9c', '#e74c3c', '#3498db', '#9b59b6', '#34495e', '#2ecc71', '#f1c40f']
+                
+                for i, f_name in enumerate(unique_files):
+                    f_res = [r for r in filtered_results if r['filename'] == f_name]
+                    x_d = [r[x_k] for r in f_res]
+                    y_d = [r[y_k] for r in f_res]
+                    sc = self.ax.scatter(x_d, y_d, label=f_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
+                    sc.custom_data = f_res 
+                    self.scatters.append(sc)
 
-            if graph_ref:
-                ffi_wrapper.free_graph(graph_ref)
-            if graph_tgt:
-                ffi_wrapper.free_graph(graph_tgt)
+            else:
+                c_k = self.keys_map[c_selection]
+                c_data = [r[c_k] for r in filtered_results]
+                sc = self.ax.scatter(all_x_data, all_y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60, picker=5)
+                sc.custom_data = filtered_results
+                self.scatters.append(sc)
+                cbar = self.fig.colorbar(sc, ax=self.ax)
+                cbar.set_label(c_selection, fontsize=9)
 
-            self.status_label.config(text=f"Analyse terminée ({total_iters} points).")
-            self.update_plot()
+        if y_k and plot_type != "Histogramme (1D)":
+            x_min, x_max = self.ax.get_xlim()
+            y_min, y_max = self.ax.get_ylim()
+            x_span = x_max - x_min
+            y_span = y_max - y_min
 
-        except Exception as e:
-            messagebox.showerror("Erreur lors de l'analyse", str(e))
+            if self.show_mean_y_var.get():
+                mean_y = np.mean(all_y_data)
+                self.ax.axhline(mean_y, color='red', linestyle='--', alpha=0.8, label='Moy. Y')
+                self.ax.text(x_min + x_span*0.05, mean_y, f' Moy. Y: {mean_y:.2f}', color='red', fontsize=8, fontweight='bold', va='bottom')
+
+            if self.show_median_y_var.get():
+                median_y = np.median(all_y_data)
+                self.ax.axhline(median_y, color='blue', linestyle='-.', alpha=0.8, label='Méd. Y')
+                self.ax.text(x_min + x_span*0.05, median_y, f' Méd. Y: {median_y:.2f}', color='blue', fontsize=8, fontweight='bold', va='top')
+
+        if self.show_mean_x_var.get():
+            mean_x = np.mean(all_x_data)
+            self.ax.axvline(mean_x, color='green', linestyle='--', alpha=0.8, label='Moy. X')
+            y_pos = self.ax.get_ylim()[0] + (self.ax.get_ylim()[1] - self.ax.get_ylim()[0])*0.8
+            self.ax.text(mean_x, y_pos, f' Moy. X: {mean_x:.2f}', color='green', fontsize=8, fontweight='bold', ha='right', rotation=90)
+
+        if self.show_median_x_var.get():
+            median_x = np.median(all_x_data)
+            self.ax.axvline(median_x, color='purple', linestyle='-.', alpha=0.8, label='Méd. X')
+            y_pos = self.ax.get_ylim()[0] + (self.ax.get_ylim()[1] - self.ax.get_ylim()[0])*0.8
+            self.ax.text(median_x, y_pos, f' Méd. X: {median_x:.2f}', color='purple', fontsize=8, fontweight='bold', ha='right', rotation=90)
+
+        if plot_type != "Histogramme (1D)":
+            if y_k:
+                self.ax.set_ylabel(self.y_var.get(), fontweight='bold')
+                
+        self.ax.set_xlabel(self.x_var.get(), fontweight='bold')
+        self.ax.grid(True, linestyle='--', alpha=0.6)
+        self.fig.tight_layout()
+        self.canvas.draw()
 
     def on_pick(self, event):
-        if not hasattr(self, 'current_file') or not self.current_file:
-            return
-
+        artist = event.artist
         ind = event.ind[0]
-        res = self.results[ind]
 
-        msg = f"Voulez-vous visualiser ce scénario en détail ?\n\nMult. Demande (EPANET) : {res['m_dst_epa']:.2f}\nMult. Source : {res['m_src']:.2f}\nMult. Dest (Algo) : {res['m_dst']:.2f}"
-        if not messagebox.askyesno("Visualisation Croisée", msg):
+        res = artist.custom_data[ind]
+
+        msg = f"Fichier : {res['filename']}\nCible : {res['target_name']}\n\n"
+        msg += f"Paramètres Réf:\nSrc: {res['ref_m_src']:.2f} | Dst(EPA): {res['ref_m_epa']:.2f} | Dst(A): {res['ref_m_dst']:.2f} | Vit: {res['ref_vitesse']:.2f} | Por: {res['ref_portion']:.2f} | Ecart: {res['ref_ecart_type']:.2f}\n\n"
+        msg += f"Paramètres Cible:\nSrc: {res['tgt_m_src']:.2f} | Dst(EPA): {res['tgt_m_epa']:.2f} | Dst(A): {res['tgt_m_dst']:.2f} | Vit: {res['tgt_vitesse']:.2f} | Por: {res['tgt_portion']:.2f} | Ecart: {res['tgt_ecart_type']:.2f}"
+        
+        if not messagebox.askyesno("Visualisation Croisée", msg + "\n\nVoulez-vous visualiser ce scénario en détail ?"):
             return
 
         from src.interface.visualisation import InternalWindow
 
-        def spawn_visualizer(title, algo, ori):
+        def spawn_visualizer(title, filepath):
             win = InternalWindow(self.app_manager.workspace, self.app_manager, title=title)
             self.app_manager.windows.append(win)
-            win.load_file(self.current_file)
-
-            win.algo_var.set(algo)
-            win.ori_var.set(ori)
+            win.current_filepath = filepath
+            
+            tgt = next((c for c in self.target_configs if c['uid'] == res['target_uid']), None)
+            if not tgt: return
+            
+            win.algo_var.set(tgt['algo'])
+            win.ori_var.set(tgt['ori'])
+            win.capa_var.set(tgt['capa'])
+            win.dem_var.set(tgt['dem'])
 
             win.inputs["Mult. Demande"].delete(0, tk.END)
-            win.inputs["Mult. Demande"].insert(0, str(res["m_dst_epa"]))
-            
+            win.inputs["Mult. Demande"].insert(0, str(res["tgt_m_epa"]))
             win.inputs["Vit. Rés (m/s)"].delete(0, tk.END)
-            win.inputs["Vit. Rés (m/s)"].insert(0, self.v_res.get())
-            
+            win.inputs["Vit. Rés (m/s)"].insert(0, str(res["tgt_vitesse"]))
             win.inputs["Vit. Arcs (m/s)"].delete(0, tk.END)
-            win.inputs["Vit. Arcs (m/s)"].insert(0, self.v_arc.get())
-            
+            win.inputs["Vit. Arcs (m/s)"].insert(0, str(res["tgt_vitesse"]))
             win.inputs["Prop. Source"].delete(0, tk.END)
-            win.inputs["Prop. Source"].insert(0, str(res["m_src"]))
-            
+            win.inputs["Prop. Source"].insert(0, str(res["tgt_m_src"]))
             win.inputs["Prop. Demande"].delete(0, tk.END)
-            win.inputs["Prop. Demande"].insert(0, str(res["m_dst"]))
+            win.inputs["Prop. Demande"].insert(0, str(res["tgt_m_dst"]))
+            win.inputs["Portion"].delete(0, tk.END)
+            win.inputs["Portion"].insert(0, str(res["tgt_portion"]))
             
+            win.inputs["Ecart-Type"].delete(0, tk.END)
+            win.inputs["Ecart-Type"].insert(0, str(res["tgt_ecart_type"]))
+
             win.trigger_run()
+            win.after(100, win.reset_view)
             return win
 
-        win_tgt = spawn_visualizer(f"Cible: {self.tgt_algo.get()}", self.tgt_algo.get(), self.tgt_ori.get())
+        win_tgt = spawn_visualizer(f"Cible: {res['target_name']}", res['filepath'])
 
-    def update_plot(self, event=None):
+    def save_analysis(self):
         if not self.results:
+            messagebox.showwarning("Attention", "Aucune analyse à sauvegarder.")
             return
+        filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=FILETYPES_JSON)
+        if filepath:
+            # Création d'un objet englobant les résultats ET la configuration UI
+            data_to_save = {
+                "config": {
+                    "sim_mode": self.sim_mode.get(),
+                    "p_min": self.p_min_ent.get(),
+                    "p_req": self.p_req_ent.get(),
+                    "p_exp": self.p_exp_ent.get(),
+                    "exclude_tanks": self.exclude_tanks.get(),
+                    "exclude_pumps": self.exclude_pumps.get(),
+                    "exclude_valves": self.exclude_valves.get(),
+                    "min_res": self.min_res_ent.get(),
+                    "max_res": self.max_res_ent.get(),
+                    "ref_algo": self.ref_algo.get(),
+                    "ref_dem": self.ref_dem.get(),
+                    "ref_capa": self.ref_capa.get(),
+                    "ref_ori": self.ref_ori.get()
+                },
+                "results": self.results
+            }
 
-        x_k = self.keys_map[self.x_var.get()]
-        y_k = self.keys_map[self.y_var.get()]
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data_to_save, f, cls=NpEncoder, indent=4)
+            messagebox.showinfo("Succès", "L'analyse a été sauvegardée avec succès.")
 
-        x_data = [r[x_k] for r in self.results]
-        y_data = [r[y_k] for r in self.results]
+    def load_analysis(self, pre_filepath=None):
+        filepath = pre_filepath or filedialog.askopenfilename(filetypes=FILETYPES_JSON)
+        if filepath:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Vérifier si c'est l'ancien format (liste simple) ou le nouveau (dictionnaire)
+            if isinstance(data, dict) and "results" in data:
+                self.results = data["results"]
+                config = data.get("config", {})
+                
+                # --- Restauration de l'interface gauche ---
+                if "sim_mode" in config: self.sim_mode.set(config["sim_mode"])
+                if "exclude_tanks" in config: self.exclude_tanks.set(config["exclude_tanks"])
+                if "exclude_pumps" in config: self.exclude_pumps.set(config["exclude_pumps"])
+                if "exclude_valves" in config: self.exclude_valves.set(config["exclude_valves"])
+                if "ref_algo" in config: self.ref_algo.set(config["ref_algo"])
+                if "ref_dem" in config: self.ref_dem.set(config["ref_dem"])
+                if "ref_capa" in config: self.ref_capa.set(config["ref_capa"])
+                if "ref_ori" in config: self.ref_ori.set(config["ref_ori"])
 
-        self.fig.clf()
-        self.ax = self.fig.add_subplot(111)
+                # Pour les Entry (champs de texte), il faut supprimer puis insérer
+                def restore_entry(entry_widget, key):
+                    if key in config:
+                        entry_widget.delete(0, tk.END)
+                        entry_widget.insert(0, str(config[key]))
 
-        c_selection = self.c_var.get()
+                restore_entry(self.p_min_ent, "p_min")
+                restore_entry(self.p_req_ent, "p_req")
+                restore_entry(self.p_exp_ent, "p_exp")
+                restore_entry(self.min_res_ent, "min_res")
+                restore_entry(self.max_res_ent, "max_res")
+                
+            else:
+                self.results = data
+
+            self.rebuild_filters_from_results()
+            self.freeze_ui(True)
+            self.update_plot()
+            self.btn_save_analysis.config(state=tk.NORMAL)
+            self.status_label.config(text=f"Analyse chargée depuis : {os.path.basename(filepath)}")
+
+    def rebuild_filters_from_results(self):
+        for widget in self.files_frame.winfo_children(): widget.destroy()
+        for widget in self.targets_list_frame.winfo_children(): widget.destroy()
+        self.file_vars.clear()
         
-        if c_selection == "Aucune":
-            self.ax.scatter(x_data, y_data, color='#3498db', edgecolors='black', alpha=0.8, s=60, picker=5)
-        else:
-            c_k = self.keys_map[c_selection]
-            c_data = [r[c_k] for r in self.results]
+        # Sauvegarde des configurations existantes
+        existing_configs = {c['uid']: c for c in self.target_configs}
+        self.target_configs.clear()
 
-            sc = self.ax.scatter(x_data, y_data, c=c_data, cmap='viridis', edgecolors='black', alpha=0.8, s=60, picker=5)
-            cbar = self.fig.colorbar(sc, ax=self.ax)
-            cbar.set_label(c_selection, fontsize=9)
+        for f in list(set([r['filepath'] for r in self.results])):
+            self.file_vars[f] = tk.BooleanVar(value=True)
+            tk.Checkbutton(self.files_frame, text=os.path.basename(f), variable=self.file_vars[f], bg="white", font=("Segoe UI", 7), anchor="w", command=self.update_plot).pack(fill=tk.X)
 
-        self.ax.set_xlabel(self.x_var.get(), fontweight='bold')
-        self.ax.set_ylabel(self.y_var.get(), fontweight='bold')
-        self.ax.grid(True, linestyle='--', alpha=0.6)
-        
-        self.fig.tight_layout()
-        self.canvas.draw()
-        
+        for uid in sorted(list(set([r['target_uid'] for r in self.results]))):
+            # On isole un résultat (le premier trouvé) pour cette cible afin d'y lire ses métadonnées
+            sample_r = next(r for r in self.results if r['target_uid'] == uid)
+            name = sample_r['target_name']
+            var = tk.BooleanVar(value=True)
+            
+            if uid in existing_configs:
+                # Si la cible existe déjà dans l'interface en cours, on la garde
+                config = existing_configs[uid]
+                config['var'] = var
+                self.target_configs.append(config)
+            else:
+                # Récupération depuis le JSON (ou valeurs par défaut si vieux JSON)
+                saved_algo = sample_r.get('target_algo', 'EPANET')
+                saved_ori = sample_r.get('target_ori', 'Aucune')
+                saved_capa = sample_r.get('target_capa', 'Vitesse Max')
+                saved_dem = sample_r.get('target_dem', 'Inchanger')
+                
+                self.target_configs.append({
+                    'uid': uid, 'name': name, 'var': var, 
+                    'algo': saved_algo, 'ori': saved_ori, 
+                    'capa': saved_capa, 'dem': saved_dem
+                })
+                
+            tk.Checkbutton(self.targets_list_frame, text=name, variable=var, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)

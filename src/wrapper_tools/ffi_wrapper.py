@@ -39,6 +39,15 @@ def fix_capacite_flow_oriente(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.fix_capacite_flow_oriente(p_reseau)
 
+def fix_capacite_flow_calcule_portion(p_reseau, portion):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.fix_capacite_flow_calcule_portion(p_reseau, portion);
+
+
+def fix_capacite_flow_oriente_portion(p_reseau, portion):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.fix_capacite_flow_oriente_portion(p_reseau, portion);
+
 def get_epanet_demande(p_projet, p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.get_epanet_demande(p_projet, p_reseau)
@@ -86,6 +95,17 @@ def create_epanet_project(input_file):
 def randomise_demande(p_projet):
     lib.randomise_demande(p_projet)
 
+def randomise_demande_normale(p_projet, ecart_type=0.3):
+    lib.randomise_demande_normale(p_projet, ecart_type)
+
+def randomise_demande_exponentielle(p_projet, ecart_type=1.0):
+    lib.randomise_demande_exponentielle(p_projet, ecart_type)
+
+def set_demande_un(p_projet):
+    lib.set_demande_un(p_projet)
+
+def set_time_step(p_projet, pastemp):
+    lib.set_time_step(p_projet, pastemp)
 
 def modif_multiplicateur(p_projet, mult):
     lib.modif_multiplicateur(p_projet, mult)

@@ -1,10 +1,9 @@
 
 #include "stdlib.h"
-#include "epanet2.h"
 #include "epanet2_2.h"
 #include "epanet2_enums.h"
 #include "epanet_parser.h"
-#include "float.h"
+#include <math.h>
 
 enum type_sommet parser_type_sommet(int type_epanet) {
 	switch (type_epanet) {
@@ -119,6 +118,106 @@ void randomise_demande(EN_Project* ph) {
 			}
 		}
 	}
+}
+
+void set_demande_un(EN_Project* ph) {
+    nbr nb_nodes;
+    EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+    
+    for (nbr i = 1; i <= nb_nodes; i++) {
+        int num_demands = 0;
+        EN_getnumdemands(*ph, i, &num_demands);
+
+        for (int cat = 1; cat <= num_demands; cat++) {
+            double base_demand = 0.0;
+            EN_getbasedemand(*ph, i, cat, &base_demand);
+
+            if (base_demand > 0.0) {
+                EN_setbasedemand(*ph, i, cat, 1.0);
+            }
+
+            EN_setdemandpattern(*ph, i, cat, 0); 
+        }
+    }
+}
+
+void randomise_demande_normale(EN_Project* ph, double ecart_type) {
+    nbr nb_nodes;
+    double demand, demande_global = 0, demande_global_rand = 0;
+    EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+    
+    for (nbr i = 1; i <= nb_nodes; i++) {
+        EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+
+        if (demand > 0.0) {
+            demande_global += demand;
+            
+            double u1 = ((double) rand() / RAND_MAX);
+            double u2 = ((double) rand() / RAND_MAX);
+            if (u1 == 0.0) u1 = 1e-9;
+            
+            double z0 = sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
+            
+            double facteur = 1.0 + ecart_type * z0;
+            if (facteur < 0.0) facteur = 0.0;
+            
+            EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * facteur);
+            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+            demande_global_rand += demand;
+        }
+    }
+
+    if (demande_global_rand > 0.0) {
+        double ratio_normalisation = demande_global / demande_global_rand;
+        for (nbr i = 1; i <= nb_nodes; i++) {
+            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+            if (demand > 0.0) {
+                demand = demand * ratio_normalisation;
+                EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand);
+            }
+        }
+    }
+}
+
+void randomise_demande_exponentielle(EN_Project* ph, double ecart_type) {
+    nbr nb_nodes;
+    double demand, demande_global = 0, demande_global_rand = 0;
+    EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+    
+    for (nbr i = 1; i <= nb_nodes; i++) {
+        EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+
+        if (demand > 0.0) {
+            demande_global += demand;
+            
+            double u = ((double) rand() / RAND_MAX);
+            if (u == 0.0) u = 1e-9;
+            
+            double x = -log(u);
+            
+            double facteur = 1.0 + ecart_type * (x - 1.0);
+            if (facteur < 0.0) facteur = 0.0;
+            
+            EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * facteur);
+            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+            demande_global_rand += demand;
+        }
+    }
+
+    if (demande_global_rand > 0.0) {
+        double ratio_normalisation = demande_global / demande_global_rand;
+        for (nbr i = 1; i <= nb_nodes; i++) {
+            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+            if (demand > 0.0) {
+                demand = demand * ratio_normalisation;
+                EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand);
+            }
+        }
+    }
+}
+
+void set_time_step(EN_Project* ph, long pas_temp) {
+    EN_settimeparam(*ph, EN_HYDSTEP, pas_temp);
 }
 
 void modif_multiplicateur(EN_Project* ph, double multiplicateur) {
@@ -299,6 +398,42 @@ void reget_epanet_flow(EN_Project* ph, struct graph* reseau) {
 	}
 }
 
+void get_tank_max_flow_limits_from_levels(EN_Project* ph, int id_node, flotant* max_out_L_min, flotant* max_in_L_min) {
+    int type_node;
+    EN_getnodetype(*ph, id_node, &type_node);
+
+    if (type_node != EN_TANK) {
+        *max_out_L_min = 0.0;
+        *max_in_L_min = 0.0;
+        return;
+    }
+
+    double niveau_courant, niveau_min, niveau_max, diametre;
+    
+    EN_getnodevalue(*ph, id_node, EN_TANKLEVEL, &niveau_courant);
+    EN_getnodevalue(*ph, id_node, EN_MINLEVEL, &niveau_min);
+    EN_getnodevalue(*ph, id_node, EN_MAXLEVEL, &niveau_max);
+    EN_getnodevalue(*ph, id_node, EN_TANKDIAM, &diametre);
+
+    double surface = M_PI * ((diametre / 2.0) * (diametre / 2.0));
+
+    double vol_courant = surface * niveau_courant;
+    double vol_min = surface * niveau_min;
+    double vol_max = surface * niveau_max;
+
+    long pas_temp;
+    EN_gettimeparam(*ph, EN_HYDSTEP, &pas_temp);
+
+    if (pas_temp <= 0) {
+        *max_out_L_min = 0.0;
+        *max_in_L_min = 0.0;
+        return;
+    }
+
+    *max_out_L_min = ((vol_courant - vol_min) * 1000.0) / ((double)pas_temp / 60.0);
+    *max_in_L_min = ((vol_max - vol_courant) * 1000.0) / ((double)pas_temp / 60.0);
+}
+
 struct graph chargement_graph(EN_Project* ph) {
 	int nb_sommets, nb_arcs, out_model;
 	flotant pression_min, pression_requise, exposant_pression, demande_multiplier;
@@ -306,8 +441,10 @@ struct graph chargement_graph(EN_Project* ph) {
 	EN_getoption(*ph, EN_DEMANDMULT, &demande_multiplier);
 	EN_getcount(*ph, EN_NODECOUNT, &nb_sommets);
 	EN_getcount(*ph, EN_LINKCOUNT, &nb_arcs);
+	long pas_temp_hydraulique = 3600;
+	EN_gettimeparam(*ph, EN_HYDSTEP, &pas_temp_hydraulique);
 
-nbr degree_supp = 0;
+	nbr degree_supp = 0;
 	int temp_type;
 	for (int i=1; i <= nb_sommets ; i++) {
 		EN_getnodetype(*ph, i, &temp_type);
@@ -322,12 +459,14 @@ nbr degree_supp = 0;
 			total_base_demand += base_demand;
 		}
 
-		if (total_base_demand != 0.0 || temp_type == EN_RESERVOIR || temp_type == EN_TANK) {
+		if (total_base_demand != 0.0 || temp_type == EN_RESERVOIR) {
 			degree_supp++;
+		} else if (temp_type == EN_TANK) {
+			degree_supp += 2;
 		};
 	}
 
-	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 0.0, demande_multiplier, 1.0, get_time(ph));
+	struct graph G = assignation_graph(out_model, nb_sommets, nb_arcs*2, 2, degree_supp*2, pression_min, pression_requise, exposant_pression, 0.0, demande_multiplier, 1.0, get_time(ph), pas_temp_hydraulique);
 	int *degrees = calloc(nb_sommets, sizeof(nbr));
 	for (int j = 1 ; j <= nb_arcs ; j++) {
 		int noeud1, noeud2;
@@ -335,10 +474,10 @@ nbr degree_supp = 0;
 		degrees[noeud1-1] += 1;
 		degrees[noeud2-1] += 1;
 	}
-
+	int type_node, pattern_stamp;
+	double elevation, elevation_supp = 0.0, demande = 0.0, emmission = 0.0, pression, x, y, charge;
 	for (int i = 1; i <= nb_sommets ; i++) {
-		int type_node, pattern_stamp;
-		double elevation, demande, pression, x, y, charge;
+		elevation_supp = 0.0, demande = 0.0, emmission = 0.0;
 		
 		EN_getnodetype(*ph, i, &type_node);
 		type_node = parser_type_sommet(type_node);
@@ -349,7 +488,6 @@ nbr degree_supp = 0;
 
 		int num_demands = 0;
 		EN_getnumdemands(*ph, i, &num_demands);
-		demande = 0.0; 
 
 		for (int cat = 1; cat <= num_demands; cat++) {
 			double base_demand = 0.0;
@@ -368,14 +506,18 @@ nbr degree_supp = 0;
 		}
 
 		if (demande == 0.0 && type_node != RESERVOIR && type_node != TANK) {
-			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, charge, 0.0, 0.0, x, y);
-		} else {
-			if (demande < 0.0 || type_node == RESERVOIR || type_node == TANK) {
-				G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, charge, 0.0, demande, x, y);
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 0, elevation, pression, charge, 0.0, 0.0, 0.0, x, y);
+		} else if (type_node != TANK) {
+			if (demande < 0.0 || type_node == RESERVOIR) {
+				G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, charge, 0.0, demande, emmission, x, y);
 			} else {
 				G.demande_global += demande;
-				G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, charge, 0.0, demande, x, y);
+				G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 1, elevation, pression, charge, 0.0, demande, emmission, x, y);
 			}
+		} else {
+			get_tank_max_flow_limits_from_levels(ph, i, &emmission, &demande);
+			EN_getnodevalue(*ph, i, EN_TANKLEVEL, &elevation_supp);
+			G.sommets[i-1] = assignation_sommet(type_node, degrees[i-1], 2, elevation+elevation_supp, pression, charge, 0.0, demande, emmission, x, y);
 		}
 		degrees[i-1] = 0;
 	}

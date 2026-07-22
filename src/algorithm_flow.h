@@ -13,6 +13,10 @@ void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vite
 
 void fix_capacite_flow_calcule(struct graph* reseau);
 
+void fix_capacite_flow_calcule_portion(struct graph* reseau, flotant portion);
+
+void fix_capacite_flow_oriente_portion(struct graph* reseau, flotant portion);
+
 void fix_capacite_flow_oriente(struct graph* reseau);
 
 void delete_source_destination(struct graph* reseau);

@@ -36,6 +36,8 @@ class AppManager(tk.Tk):
         menu_analysis = tk.Menu(menubar, tearoff=0)
         menu_analysis.add_command(
             label="Nouvelle fenêtre d'Analyse (Grid Search)...", command=self.open_analysis)
+        menu_analysis.add_command(
+            label="Ouvrir une analyse existante (.json)...", command=self.load_analysis_window)
         menubar.add_cascade(label="Analyse", menu=menu_analysis)
 
         self.config(menu=menubar)
@@ -50,6 +52,13 @@ class AppManager(tk.Tk):
     def open_analysis(self):
         win = AnalysisWindow(self.workspace, self)
         self.windows.append(win)
+
+    def load_analysis_window(self):
+        path = filedialog.askopenfilename(filetypes=[("JSON Files", "*.json")])
+        if path:
+            win = AnalysisWindow(self.workspace, self)
+            self.windows.append(win)
+            win.load_analysis(pre_filepath=path)
 
     def set_active_window(self, window):
         self.active_window = window
