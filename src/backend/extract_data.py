@@ -104,7 +104,10 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
 
     return {
         "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
-        "target_uid": tgt['uid'], "target_name": tgt['name'], "flags": flags,
+        "target_uid": tgt['uid'], "target_name": tgt['name'], 
+        "target_algo": tgt['algo'], "target_ori": tgt['ori'], 
+        "target_capa": tgt['capa'], "target_dem": tgt['dem'],
+        "flags": flags,
         "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p, "ref_ecart_type": r_ecart,
         "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p, "tgt_ecart_type": t_ecart,
         "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,

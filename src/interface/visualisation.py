@@ -114,7 +114,9 @@ class InternalWindow(tk.Frame):
         self.inputs = {}
         fields = [("Mult. Demande", "1.0"), ("Vit. Rés (m/s)", "3.0"),
                   ("Vit. Arcs (m/s)", "2.0"), ("Prop. Source", "1.0"),
-                  ("Prop. Demande", "1.0"), ("Portion", "0.1"), ("Seed (Optionnel)", "")]
+                  ("Prop. Demande", "1.0"), ("Portion", "0.1"), 
+                  ("Ecart-Type", "0.3"), ("Seed (Optionnel)", "")]
+        
         for label, default in fields:
             tk.Label(self.sidebar, text=label+":", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
             ent = tk.Entry(self.sidebar, relief="flat", highlightthickness=1, justify="center")
@@ -183,7 +185,7 @@ class InternalWindow(tk.Frame):
             results = run_single_simulation(
                 filepath=filepath, choix_algo="EPANET", choix_ori="Aucune", 
                 choix_capa="Vitesse Max", choix_dem="Inchanger", 
-                p_src=1.0, p_dem=1.0, v_res=2.0, v_arc=2.0, mult_epa=1.0, portion=1.0
+                p_src=1.0, p_dem=1.0, v_res=2.0, v_arc=2.0, mult_epa=1.0, portion=1.0, ecart_type=0.3
             )
             self.nodes = results["nodes"]
             self.edges = results["edges"]
@@ -206,6 +208,7 @@ class InternalWindow(tk.Frame):
             choix_dem = self.dem_var.get()
             mult = float(self.inputs["Mult. Demande"].get())
             portion_val = float(self.inputs["Portion"].get())
+            ecart_val = float(self.inputs["Ecart-Type"].get())
 
             seed_str = self.inputs["Seed (Optionnel)"].get().strip()
             seed_val = None
@@ -225,7 +228,7 @@ class InternalWindow(tk.Frame):
                 filepath=self.current_filepath, choix_algo=choix_algo, 
                 choix_ori=choix_ori, choix_capa=choix_capa, choix_dem=choix_dem, 
                 p_src=p_src, p_dem=p_dem, v_res=v_res, v_arc=v_arc, 
-                mult_epa=mult, portion=portion_val, seed=seed_val
+                mult_epa=mult, portion=portion_val, seed=seed_val, ecart_type=ecart_val
             )
 
             self.nodes = results["nodes"]
@@ -484,7 +487,6 @@ class InternalWindow(tk.Frame):
 
         self.update_color_bar(boundaries_arc, mode_couleur, boundaries_node, mode_couleur_node)
 
-        # Dessin des Arcs
         for idx, e in enumerate(self.edges):
             sx1, sy1 = self.world_to_screen(e['x1'], e['y1'])
             sx2, sy2 = self.world_to_screen(e['x2'], e['y2'])
@@ -509,7 +511,6 @@ class InternalWindow(tk.Frame):
             else:
                 self.canvas.create_line(sx1, sy1, sx2, sy2, fill=color, width=width_line, tags=(f"edge_{idx}", "edge"))
 
-        # Dessin des Sommets
         r = 5 if (mode_couleur != "Aucune" or mode_couleur_node != "Aucune") else 4
         for idx, n in enumerate(self.nodes):
             sx, sy = self.world_to_screen(n['x'], n['y'])
@@ -608,7 +609,6 @@ class InternalWindow(tk.Frame):
                 val = boundaries_arc[4 - i]
                 y_pos = y_offset + (grad_height * (i / 4.0))
                 tk.Label(self.legend_frame, text=f"{val:.2f}", bg="white", fg="black", font=lbl_font).place(x=center_x - 12, y=y_pos, anchor="e")
-
 
     def reset_view(self):
         if not self.nodes:

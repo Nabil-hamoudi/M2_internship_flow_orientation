@@ -174,6 +174,7 @@ def run_analysis_worker(task_args):
                                                                 r_src, r_epa, r_dst, r_v, r_p, r_ecart,
                                                                 t_src, t_epa, t_dst, t_v, t_p, t_ecart
                                                             )
+                                                            metrics["rand_ecart"] = rand_ecart
                                                             results.append(metrics)
 
                                                             ffi_wrapper.free_graph(graph_tgt)

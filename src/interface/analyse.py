@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import numpy as np
-import random
 import matplotlib
 import os
 import json
@@ -31,7 +30,6 @@ class AnalysisWindow(tk.Frame):
         self.loaded_files = []
         self.results = []
         self.file_vars = {}  
-        self.rand_vars = {}
 
         self.prep_dir = os.path.join(os.getcwd(), "prepared_datasets")
         os.makedirs(self.prep_dir, exist_ok=True)
@@ -207,29 +205,6 @@ class AnalysisWindow(tk.Frame):
         self.min_res_ent.bind("<KeyRelease>", self.update_plot)
         self.max_res_ent.bind("<KeyRelease>", self.update_plot)
 
-        self.rand_f = tk.LabelFrame(self.sidebar, text="Scénarios de Randomisation", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
-        self.rand_f.pack(fill=tk.X, pady=(5, 5))
-
-        self.run_base_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(self.rand_f, text="Fichier Base (Aucune)", variable=self.run_base_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
-
-        self.run_all_one_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.rand_f, text="Dems = 1 (Toutes à 1)", variable=self.run_all_one_var, bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w", padx=5)
-
-        def make_rand_entry(parent, label, default="0"):
-            f = tk.Frame(parent, bg="#ecf0f1")
-            f.pack(fill=tk.X, padx=5, pady=2)
-            tk.Label(f, text=label, bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-            ent = tk.Entry(f, width=5)
-            ent.insert(0, default)
-            ent.pack(side=tk.RIGHT)
-            return ent
-
-        self.nb_rand_ecart = make_rand_entry(self.rand_f, "Ecart-Type (Norm/Exp) :", "0.3")
-        self.nb_rand_uni = make_rand_entry(self.rand_f, "Nb. Uniforme :")
-        self.nb_rand_norm = make_rand_entry(self.rand_f, "Nb. Normale :")
-        self.nb_rand_exp = make_rand_entry(self.rand_f, "Nb. Exponentielle :")
-
         self.ref_f = tk.LabelFrame(self.sidebar, text="Modèle de Référence", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         self.ref_f.pack(fill=tk.X, pady=5)
         
@@ -266,9 +241,6 @@ class AnalysisWindow(tk.Frame):
 
         self.targets_list_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer les Cibles", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
         self.targets_list_frame.pack(fill=tk.X, pady=(0, 5))
-
-        self.rand_filter_frame = tk.LabelFrame(self.sidebar, text="Afficher/Masquer Randomisations", bg="#ecf0f1", font=("Segoe UI", 8, "bold"))
-        self.rand_filter_frame.pack(fill=tk.X, pady=(0, 5))
 
         self.run_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
         self.run_frame.pack(fill=tk.X, pady=10)
@@ -386,7 +358,6 @@ class AnalysisWindow(tk.Frame):
             self.btn_reset.pack_forget()
 
         self._set_state(self.hyd_f, freeze)
-        self._set_state(self.rand_f, freeze)
         self._set_state(self.ref_f, freeze)
 
         for row in self.target_ui_rows:
@@ -397,10 +368,6 @@ class AnalysisWindow(tk.Frame):
 
     def reset_analysis(self):
         self.results = []
-        for widget in self.rand_filter_frame.winfo_children():
-            widget.destroy()
-        self.rand_vars.clear()
-        
         self.freeze_ui(False)
         self.update_plot()
         self.status_label.config(text="Analyse réinitialisée. Prêt pour de nouvelles modifications.")
@@ -595,29 +562,8 @@ class AnalysisWindow(tk.Frame):
                     "grid": self._extract_grid(row['ranges'])
                 })
 
-        randomizations = []
-        if self.run_base_var.get():
-            randomizations.append(("Aucune", None, 0.0))
-        if self.run_all_one_var.get():
-            randomizations.append(("Toutes à 1", None, 0.0))
-            
-        def parse_nb(ent):
-            try: return max(0, int(ent.get()))
-            except ValueError: return 0
-            
-        def parse_float(ent, default=0.3):
-            try: return float(ent.get())
-            except ValueError: return default
-
-        nb_uni = parse_nb(self.nb_rand_uni)
-        nb_norm = parse_nb(self.nb_rand_norm)
-        nb_exp = parse_nb(self.nb_rand_exp)
-        rand_ecart = parse_float(self.nb_rand_ecart)
-
-        MAX_SEED = 4294967295
-        for _ in range(nb_uni): randomizations.append(("Uniforme", random.randint(1, MAX_SEED), rand_ecart))
-        for _ in range(nb_norm): randomizations.append(("Normale", random.randint(1, MAX_SEED), rand_ecart))
-        for _ in range(nb_exp): randomizations.append(("Exponentielle", random.randint(1, MAX_SEED), rand_ecart))
+        # Utilise un seul scénario de base afin que le backend puisse continuer de fonctionner
+        randomizations = [("Aucune", None, 0.0)]
 
         return {
             "ref_algo": self.ref_algo.get(),
@@ -747,10 +693,6 @@ class AnalysisWindow(tk.Frame):
 
         for r in self.results:
             if r['filepath'] in self.file_vars and not self.file_vars[r['filepath']].get():
-                continue
-
-            r_type = r.get('rand_type', 'Aucune')
-            if r_type in self.rand_vars and not self.rand_vars[r_type].get():
                 continue
 
             flags = r['flags']
@@ -913,9 +855,6 @@ class AnalysisWindow(tk.Frame):
         msg += f"Paramètres Réf:\nSrc: {res['ref_m_src']:.2f} | Dst(EPA): {res['ref_m_epa']:.2f} | Dst(A): {res['ref_m_dst']:.2f} | Vit: {res['ref_vitesse']:.2f} | Por: {res['ref_portion']:.2f} | Ecart: {res['ref_ecart_type']:.2f}\n\n"
         msg += f"Paramètres Cible:\nSrc: {res['tgt_m_src']:.2f} | Dst(EPA): {res['tgt_m_epa']:.2f} | Dst(A): {res['tgt_m_dst']:.2f} | Vit: {res['tgt_vitesse']:.2f} | Por: {res['tgt_portion']:.2f} | Ecart: {res['tgt_ecart_type']:.2f}"
         
-        msg += f"\n\nRandomisation Base : {res.get('rand_type', 'Aucune')}"
-        if res.get('seed') is not None: msg += f" | Seed : {res['seed']}"
-        
         if not messagebox.askyesno("Visualisation Croisée", msg + "\n\nVoulez-vous visualiser ce scénario en détail ?"):
             return
 
@@ -932,13 +871,7 @@ class AnalysisWindow(tk.Frame):
             win.algo_var.set(tgt['algo'])
             win.ori_var.set(tgt['ori'])
             win.capa_var.set(tgt['capa'])
-            
-            # Application de la source de randomisation la plus explicite
-            rand_t = res.get('rand_type', 'Aucune')
-            if rand_t != "Aucune":
-                win.dem_var.set(rand_t)
-            else:
-                win.dem_var.set(tgt['dem'])
+            win.dem_var.set(tgt['dem'])
 
             win.inputs["Mult. Demande"].delete(0, tk.END)
             win.inputs["Mult. Demande"].insert(0, str(res["tgt_m_epa"]))
@@ -952,14 +885,12 @@ class AnalysisWindow(tk.Frame):
             win.inputs["Prop. Demande"].insert(0, str(res["tgt_m_dst"]))
             win.inputs["Portion"].delete(0, tk.END)
             win.inputs["Portion"].insert(0, str(res["tgt_portion"]))
+            
             win.inputs["Ecart-Type"].delete(0, tk.END)
             win.inputs["Ecart-Type"].insert(0, str(res["tgt_ecart_type"]))
 
-            if res.get('seed') is not None:
-                win.inputs["Seed (Optionnel)"].delete(0, tk.END)
-                win.inputs["Seed (Optionnel)"].insert(0, str(res['seed']))
-            
             win.trigger_run()
+            win.after(100, win.reset_view)
             return win
 
         win_tgt = spawn_visualizer(f"Cible: {res['target_name']}", res['filepath'])
@@ -970,15 +901,66 @@ class AnalysisWindow(tk.Frame):
             return
         filepath = filedialog.asksaveasfilename(defaultextension=".json", filetypes=FILETYPES_JSON)
         if filepath:
+            # Création d'un objet englobant les résultats ET la configuration UI
+            data_to_save = {
+                "config": {
+                    "sim_mode": self.sim_mode.get(),
+                    "p_min": self.p_min_ent.get(),
+                    "p_req": self.p_req_ent.get(),
+                    "p_exp": self.p_exp_ent.get(),
+                    "exclude_tanks": self.exclude_tanks.get(),
+                    "exclude_pumps": self.exclude_pumps.get(),
+                    "exclude_valves": self.exclude_valves.get(),
+                    "min_res": self.min_res_ent.get(),
+                    "max_res": self.max_res_ent.get(),
+                    "ref_algo": self.ref_algo.get(),
+                    "ref_dem": self.ref_dem.get(),
+                    "ref_capa": self.ref_capa.get(),
+                    "ref_ori": self.ref_ori.get()
+                },
+                "results": self.results
+            }
+
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(self.results, f, cls=NpEncoder, indent=4)
+                json.dump(data_to_save, f, cls=NpEncoder, indent=4)
             messagebox.showinfo("Succès", "L'analyse a été sauvegardée avec succès.")
 
     def load_analysis(self, pre_filepath=None):
         filepath = pre_filepath or filedialog.askopenfilename(filetypes=FILETYPES_JSON)
         if filepath:
             with open(filepath, 'r', encoding='utf-8') as f:
-                self.results = json.load(f)
+                data = json.load(f)
+            
+            # Vérifier si c'est l'ancien format (liste simple) ou le nouveau (dictionnaire)
+            if isinstance(data, dict) and "results" in data:
+                self.results = data["results"]
+                config = data.get("config", {})
+                
+                # --- Restauration de l'interface gauche ---
+                if "sim_mode" in config: self.sim_mode.set(config["sim_mode"])
+                if "exclude_tanks" in config: self.exclude_tanks.set(config["exclude_tanks"])
+                if "exclude_pumps" in config: self.exclude_pumps.set(config["exclude_pumps"])
+                if "exclude_valves" in config: self.exclude_valves.set(config["exclude_valves"])
+                if "ref_algo" in config: self.ref_algo.set(config["ref_algo"])
+                if "ref_dem" in config: self.ref_dem.set(config["ref_dem"])
+                if "ref_capa" in config: self.ref_capa.set(config["ref_capa"])
+                if "ref_ori" in config: self.ref_ori.set(config["ref_ori"])
+
+                # Pour les Entry (champs de texte), il faut supprimer puis insérer
+                def restore_entry(entry_widget, key):
+                    if key in config:
+                        entry_widget.delete(0, tk.END)
+                        entry_widget.insert(0, str(config[key]))
+
+                restore_entry(self.p_min_ent, "p_min")
+                restore_entry(self.p_req_ent, "p_req")
+                restore_entry(self.p_exp_ent, "p_exp")
+                restore_entry(self.min_res_ent, "min_res")
+                restore_entry(self.max_res_ent, "max_res")
+                
+            else:
+                self.results = data
+
             self.rebuild_filters_from_results()
             self.freeze_ui(True)
             self.update_plot()
@@ -987,22 +969,39 @@ class AnalysisWindow(tk.Frame):
 
     def rebuild_filters_from_results(self):
         for widget in self.files_frame.winfo_children(): widget.destroy()
-        for widget in self.rand_filter_frame.winfo_children(): widget.destroy()
         for widget in self.targets_list_frame.winfo_children(): widget.destroy()
         self.file_vars.clear()
-        self.rand_vars.clear()
+        
+        # Sauvegarde des configurations existantes
+        existing_configs = {c['uid']: c for c in self.target_configs}
         self.target_configs.clear()
 
         for f in list(set([r['filepath'] for r in self.results])):
             self.file_vars[f] = tk.BooleanVar(value=True)
             tk.Checkbutton(self.files_frame, text=os.path.basename(f), variable=self.file_vars[f], bg="white", font=("Segoe UI", 7), anchor="w", command=self.update_plot).pack(fill=tk.X)
 
-        for r_type in sorted(list(set([r.get('rand_type', 'Aucune') for r in self.results]))):
-            self.rand_vars[r_type] = tk.BooleanVar(value=True)
-            tk.Checkbutton(self.rand_filter_frame, text=r_type, variable=self.rand_vars[r_type], bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
-
         for uid in sorted(list(set([r['target_uid'] for r in self.results]))):
-            name = next(r['target_name'] for r in self.results if r['target_uid'] == uid)
+            # On isole un résultat (le premier trouvé) pour cette cible afin d'y lire ses métadonnées
+            sample_r = next(r for r in self.results if r['target_uid'] == uid)
+            name = sample_r['target_name']
             var = tk.BooleanVar(value=True)
-            self.target_configs.append({'uid': uid, 'name': name, 'var': var})
+            
+            if uid in existing_configs:
+                # Si la cible existe déjà dans l'interface en cours, on la garde
+                config = existing_configs[uid]
+                config['var'] = var
+                self.target_configs.append(config)
+            else:
+                # Récupération depuis le JSON (ou valeurs par défaut si vieux JSON)
+                saved_algo = sample_r.get('target_algo', 'EPANET')
+                saved_ori = sample_r.get('target_ori', 'Aucune')
+                saved_capa = sample_r.get('target_capa', 'Vitesse Max')
+                saved_dem = sample_r.get('target_dem', 'Inchanger')
+                
+                self.target_configs.append({
+                    'uid': uid, 'name': name, 'var': var, 
+                    'algo': saved_algo, 'ori': saved_ori, 
+                    'capa': saved_capa, 'dem': saved_dem
+                })
+                
             tk.Checkbutton(self.targets_list_frame, text=name, variable=var, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w", command=self.update_plot).pack(fill=tk.X, padx=5)
