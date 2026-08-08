@@ -85,12 +85,18 @@ def compute_flow_edmonds_karp(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.compute_flow_edmonds_karp(p_reseau)
 
+def compute_flow_elevation_prioritaire_ff(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.compute_flow_elevation_prioritaire_ff(p_reseau)
+
+def compute_flow_edmonds_karp_elevation(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.compute_flow_edmonds_karp_elevation(p_reseau)
 
 def create_epanet_project(input_file):
     projet = lib.init_inp_file(ensure_bytes(
         input_file), b"epanet_file.log", b"resultat.res")
     return ffi.new("EN_Project *", projet)
-
 
 def randomise_demande(p_projet):
     lib.randomise_demande(p_projet)

@@ -256,7 +256,7 @@ void get_epanet_fulldemande(EN_Project* ph, struct graph* reseau) {
 	for (nbr i = 1; i <= nb_nodes; i++) {
 		int num_demands = 0;
 		EN_getnumdemands(*ph, i, &num_demands);
-		
+
 		demande = 0.0;
 		for (int cat = 1; cat <= num_demands; cat++) {
 			double base_demand = 0.0;

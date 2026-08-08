@@ -3,7 +3,7 @@ import json
 from src.wrapper_tools import analyse_tools
 
 # --- CONSTANTES PARTAGÉES ---
-ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
+ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp", "Ford-Fulkerson_elevation", "Edmonds-Karp_elevation")
 ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 CAPACITES = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 DEMANDES = ("Inchanger", "Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")

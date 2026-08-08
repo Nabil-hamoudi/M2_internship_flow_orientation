@@ -494,3 +494,270 @@ void compute_flow_edmonds_karp(struct graph* reseau) {
 	} while (new_flot != -1.0);
 	compute_satisfaction_rate(reseau);
 }
+
+
+struct step_elevation {
+	struct sommet* v;
+	struct arc* a;
+	int is_inv;
+	flotant flow_ajoutable;
+	flotant descent;
+};
+
+flotant parcours_elevation_iteratif(struct graph* reseau) {
+	flotant epsilon = 0.0;
+	int nb_s = reseau->nb_sommet;
+
+	struct sommet* pile[nb_s];
+	struct arc* parent_arc[nb_s];
+	int is_inverse[nb_s];
+	flotant path_flow[nb_s];
+
+	int top = 0;
+
+	struct sommet* source = reseau->sommet_source;
+	int source_idx = source - reseau->sommets;
+
+	pile[top++] = source;
+	path_flow[source_idx] = DBL_MAX;
+	source->marque = 1;
+
+	int dest_idx = -1;
+
+	while (top > 0) {
+		struct sommet* u = pile[--top];
+		int u_idx = u - reseau->sommets;
+
+		if (u->type == DESTINATION) {
+			dest_idx = u_idx;
+			break;
+		}
+
+		// Collecte de tous les chemins possibles depuis 'u' (entrants et sortants)
+		struct step_elevation steps[u->degree * 2];
+		int num_steps = 0;
+
+		for (int k = 0; k < u->degree; k++) {
+			// Sens direct (arc sortant)
+			struct arc* arc_out = u->arcs[k].arc_sortant;
+			struct sommet* v_out = arc_out->destination;
+			flotant flow_ajoutable_out = arc_out->capacite - arc_out->flow;
+
+			if (flow_ajoutable_out > epsilon && !v_out->marque) {
+				steps[num_steps].v = v_out;
+				steps[num_steps].a = arc_out;
+				steps[num_steps].is_inv = 0;
+				steps[num_steps].flow_ajoutable = flow_ajoutable_out;
+				// Descente = élévation de départ - élévation d'arrivée
+				steps[num_steps].descent = u->elevation - v_out->elevation;
+				num_steps++;
+			}
+
+			// Sens inverse (arc entrant / flot résiduel)
+			struct arc* arc_in = u->arcs[k].arc_entrant;
+			struct sommet* v_in = arc_in->source;
+			flotant flow_ajoutable_in = arc_in->flow;
+
+			if (flow_ajoutable_in > epsilon && !v_in->marque) {
+				steps[num_steps].v = v_in;
+				steps[num_steps].a = arc_in;
+				steps[num_steps].is_inv = 1;
+				steps[num_steps].flow_ajoutable = flow_ajoutable_in;
+				// Descente = élévation de départ - élévation de la source
+				steps[num_steps].descent = u->elevation - v_in->elevation;
+				num_steps++;
+			}
+		}
+
+		for (int i = 0; i < num_steps - 1; i++) {
+			for (int j = i + 1; j < num_steps; j++) {
+				if (steps[j].descent < steps[i].descent) {
+					struct step_elevation temp = steps[i];
+					steps[i] = steps[j];
+					steps[j] = temp;
+				}
+			}
+		}
+
+		for (int i = 0; i < num_steps; i++) {
+			struct sommet* v = steps[i].v;
+			if (!v->marque) { 
+				v->marque = 1;
+				int v_idx = v - reseau->sommets;
+				parent_arc[v_idx] = steps[i].a;
+				is_inverse[v_idx] = steps[i].is_inv;
+				path_flow[v_idx] = fmin(path_flow[u_idx], steps[i].flow_ajoutable);
+				pile[top++] = v;
+			}
+		}
+	}
+
+	// Mise à jour des flots si un chemin augmentant a été trouvé
+	if (dest_idx != -1) {
+		flotant new_flot = path_flow[dest_idx];
+		int curr_idx = dest_idx;
+
+		while (curr_idx != source_idx) {
+			struct arc* arc = parent_arc[curr_idx];
+			
+			if (is_inverse[curr_idx]) {
+				arc->flow -= new_flot;
+				curr_idx = arc->destination - reseau->sommets; // Remonte vers l'arrivée
+			} else {
+				arc->flow += new_flot;
+				curr_idx = arc->source - reseau->sommets; // Remonte vers la source
+			}
+		}
+		return new_flot;
+	}
+
+	return -1.0;
+}
+
+void compute_flow_elevation_prioritaire_ff(struct graph* reseau) {
+	marque_zero_sommets(reseau);
+	flotant result = 1.0;
+	
+	while (result != -1.0) {
+		marque_zero_sommets(reseau);
+		result = parcours_elevation_iteratif(reseau); 
+	};
+	
+	compute_satisfaction_rate(reseau);
+}
+
+struct step_ek_elevation {
+	struct arc* arc;
+	struct sommet* target;
+	flotant flow_ajoutable;
+	int inverse;
+	flotant descent;
+};
+
+flotant parcours_ek_elevation(struct file* file, struct file** end_file) {
+	flotant epsilon = 0.0;
+	struct sommet* sommet = file->sommet;
+	flotant flow = file->flow_ajoutable;
+
+	if (sommet->type == DESTINATION) {
+		return flow;
+	}
+
+	struct step_ek_elevation steps[sommet->degree * 2];
+	int num_steps = 0;
+
+	for (int k = 0; k < sommet->degree; k++) {
+		struct arc* arc_out = sommet->arcs[k].arc_sortant;
+		struct sommet* v_out = arc_out->destination;
+		flotant flow_ajoutable_out = arc_out->capacite - arc_out->flow;
+
+		if (flow_ajoutable_out > epsilon && !v_out->marque) {
+			steps[num_steps].arc = arc_out;
+			steps[num_steps].target = v_out;
+			steps[num_steps].flow_ajoutable = fmin(flow, flow_ajoutable_out);
+			steps[num_steps].inverse = 1;
+			// Descente = élévation de départ - élévation d'arrivée
+			steps[num_steps].descent = sommet->elevation - v_out->elevation;
+			num_steps++;
+		}
+
+		// Sens inverse (arc entrant)
+		struct arc* arc_in = sommet->arcs[k].arc_entrant;
+		struct sommet* v_in = arc_in->source;
+		flotant flow_ajoutable_in = arc_in->flow;
+
+		if (flow_ajoutable_in > epsilon && !v_in->marque) {
+			steps[num_steps].arc = arc_in;
+			steps[num_steps].target = v_in;
+			steps[num_steps].flow_ajoutable = fmin(flow, flow_ajoutable_in);
+			steps[num_steps].inverse = -1;
+			// Descente = élévation de départ - élévation de la source
+			steps[num_steps].descent = sommet->elevation - v_in->elevation;
+			num_steps++;
+		}
+	}
+
+	// Tri par ordre décroissant vis-à-vis de la descente (la plus forte en premier)
+	// Ainsi, elle sera ajoutée à la file (FIFO) avant les autres voisins du même niveau
+	for (int i = 0; i < num_steps - 1; i++) {
+		for (int j = i + 1; j < num_steps; j++) {
+			if (steps[j].descent > steps[i].descent) {
+				struct step_ek_elevation temp = steps[i];
+				steps[i] = steps[j];
+				steps[j] = temp;
+			}
+		}
+	}
+
+	// Ajout dans la file
+	for (int i = 0; i < num_steps; i++) {
+		if (!steps[i].target->marque) {
+			steps[i].target->marque = 1;
+			
+			struct file* sommet_suivant = malloc(sizeof(struct file));
+			sommet_suivant->sommet = steps[i].target;
+			sommet_suivant->flow_ajoutable = steps[i].flow_ajoutable;
+			sommet_suivant->arc = steps[i].arc;
+			sommet_suivant->inverse = steps[i].inverse;
+			sommet_suivant->precedent = file;
+			sommet_suivant->suivant = NULL;
+			
+			(*end_file)->suivant = sommet_suivant;
+			*end_file = sommet_suivant;
+		}
+	}
+
+	return -1.0;
+}
+
+void compute_flow_edmonds_karp_elevation(struct graph* reseau) {
+	marque_zero_sommets(reseau);
+	flotant new_flot;
+	
+	do {
+		struct file* file = malloc(sizeof(struct file));
+		struct file* end = file;
+		struct file** end_file = &end;
+		
+		file->sommet = reseau->sommet_source;
+		file->flow_ajoutable = DBL_MAX;
+		file->precedent = NULL;
+		file->suivant = NULL;
+		reseau->sommet_source->marque = 1;
+		
+		new_flot = parcours_ek_elevation(file, end_file);
+		
+		struct file* current = file;
+		struct file* final = file;
+		struct file* tmp;
+		
+		while (current->suivant != NULL && new_flot == -1.0) {
+			current = current->suivant;
+			new_flot = parcours_ek_elevation(current, end_file);
+			if (new_flot != -1.0) {
+				final = current;
+				break;
+			}
+		}
+		
+		if (new_flot != -1.0) {
+			while (1) {
+				if (final->precedent == NULL) { break; }
+				final->arc->flow += new_flot * final->inverse;
+				final = final->precedent;
+			}
+		}
+		
+		current = file;
+		while (current != NULL) {
+			tmp = current->suivant;
+			free(current);
+			current = tmp;
+		}
+		
+		marque_zero_sommets(reseau);
+	} while (new_flot != -1.0);
+	
+	compute_satisfaction_rate(reseau);
+}
+

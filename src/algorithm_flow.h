@@ -32,3 +32,7 @@ void nullifier_flow(struct graph* reseau);
 void compute_flow_ford_fukerson(struct graph* reseau);
 
 void compute_flow_edmonds_karp(struct graph* reseau);
+
+void compute_flow_elevation_prioritaire_ff(struct graph* reseau);
+
+void compute_flow_edmonds_karp_elevation(struct graph* reseau);
