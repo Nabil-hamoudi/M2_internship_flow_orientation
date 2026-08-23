@@ -54,6 +54,14 @@ def get_arc_source_type(p_reseau, index):
 def get_arc_dest_type(p_reseau, index):
     return get_graph_pointer(p_reseau).arcs[index].destination.type
 
+def get_arc_source_elevation(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].source
+    return s.elevation
+
+def get_arc_dest_elevation(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].destination
+    return s.elevation
+
 def get_arc_source_position(p_reseau, index):
     s = get_graph_pointer(p_reseau).arcs[index].source
     return s.position.x, s.position.y
@@ -183,7 +191,7 @@ def get_n_arcs_non_nul(p_reseau):
 
 def get_n_arcs_nulles(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
-    return extraire_arcs_nulles(p_reseau).shape[0]
+    return extraire_arcs_nulles(p_reseau).shape[0] / 2
 
 
 def get_arcs_symmetrique(p_reseau):

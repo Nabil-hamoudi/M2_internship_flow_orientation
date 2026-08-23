@@ -148,3 +148,15 @@ def free_project(p_projet):
 def compute_satisfaction_rate(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.compute_satisfaction_rate(p_reseau)
+
+def compute_pression_statique(p_reseau, mode=0):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.compute_pression_statique(p_reseau, mode)
+
+def orienter_arcs_par_pression(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_arcs_par_pression(p_reseau)
+
+def tester_orientation_flow(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.tester_orientation_flow(p_reseau)

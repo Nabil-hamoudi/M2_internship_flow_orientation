@@ -3,12 +3,12 @@ import json
 from src.wrapper_tools import analyse_tools
 
 # --- CONSTANTES PARTAGÉES ---
-ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp", "Ford-Fulkerson_elevation", "Edmonds-Karp_elevation")
-ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
+ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp", "Ford-Fulkerson_elevation", "Edmonds-Karp_elevation", "Test Orientation")
+ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp", "Pression Statique")
 CAPACITES = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 DEMANDES = ("Inchanger", "Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
 COULEURS_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
-COULEURS_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)")
+COULEURS_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)", "Différence d'Élévation")
 
 FILETYPES_INP = [("EPANET", "*.inp *.INP")]
 FILETYPES_JSON = [("JSON Files", "*.json")]
@@ -55,8 +55,12 @@ def extract_data(reseau):
         x1, y1 = analyse_tools.get_arc_source_position(reseau, idx_aller)
         x2, y2 = analyse_tools.get_arc_dest_position(reseau, idx_aller)
 
+        diff_elevation = analyse_tools.get_arc_dest_elevation(reseau, idx_aller) - analyse_tools.get_arc_source_elevation(reseau, idx_aller)
+
         if idx_retour in arcs_actifs:
+            diff_elevation = diff_elevation * -1
             x1, y1, x2, y2 = x2, y2, x1, y1
+
 
         edges.append({
             'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 
@@ -69,7 +73,8 @@ def extract_data(reseau):
             'flow_aller': analyse_tools.get_arc_flow(reseau, idx_aller), 
             'cap_aller': analyse_tools.get_arc_capacite(reseau, idx_aller),
             'flow_retour': analyse_tools.get_arc_flow(reseau, idx_retour), 
-            'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour)
+            'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour),
+            'diff_elevation': diff_elevation
         })
         
     return nodes, edges, (min_x, max_x, min_y, max_y)
@@ -94,13 +99,13 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
     jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
     
     arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref))) * 100
-    arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
+    arcs_nul_ref = analyse_tools.get_n_arcs_nulles(graph_ref)
     arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt))) * 100
-    arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
-    
+    arcs_nul_tgt = analyse_tools.get_n_arcs_nulles(graph_tgt)
+
     nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
     nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
-    nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
+    nb_inter_nul = np.intersect1d(analyse_tools.extraire_arcs_nulles(graph_ref), analyse_tools.extraire_arcs_nulles(graph_tgt)).shape[0] / 2
 
     return {
         "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
@@ -112,9 +117,9 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
         "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p, "tgt_ecart_type": t_ecart,
         "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
         "jaccard": jaccard_d,  
-        "arc_nul_ref": arcs_nul_ref.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
+        "arc_nul_ref": (arcs_nul_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
         "arc_non_nul_ref" : arcs_non_nul_ref, 
-        "arc_nul_cible": arcs_nul_tgt.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
+        "arc_nul_cible": (arcs_nul_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
         "arc_non_nul_cible": arcs_non_nul_tgt,
         "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
         "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0

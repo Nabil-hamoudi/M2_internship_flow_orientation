@@ -35,6 +35,8 @@ def compute_algo(reseau, choix, m_src, m_dst):
         ffi_wrapper.nullifier_flow(reseau)
         ffi_wrapper.compute_flow_edmonds_karp_elevation(reseau)
         ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Test Orientation":
+        ffi_wrapper.tester_orientation_flow(reseau)
 
 def compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
     if choix_ori == "EPANET":
@@ -43,12 +45,15 @@ def compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
     elif choix_ori == "EPANET Partiel":
         ffi_wrapper.reget_epanet_flow(projet, reseau)
         ffi_wrapper.fix_capacite_flow_oriente_portion(reseau, portion)
+    elif choix_ori == "Pression Statique":
+        ffi_wrapper.compute_pression_statique(reseau, 0)
+        ffi_wrapper.orienter_arcs_par_pression(reseau)
 
 def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa=1.0, portion=1.0, ecart_type=0.3):
     ffi_wrapper.modif_multiplicateur(projet, max(mult_epa, 1e-6))
     reseau = None
-    
-    demandes_epanet = [d for d in DEMANDES if d != "Uniforme"]
+
+    demandes_epanet = [d for d in DEMANDES if d == "EPANET"]
     
     if choix_dem == "Normale":
         ffi_wrapper.randomise_demande_normale(projet, ecart_type)

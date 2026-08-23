@@ -238,7 +238,9 @@ void fermeture_free_project(EN_Project* ph) {
 void nullifier_demande(struct graph* reseau) {
 	nbr nb_nodes = reseau->nb_sommet;
 	for (nbr i = 0; i < nb_nodes; i++) {
-		reseau->sommets[i].demande = 0.0;
+        if (reseau->sommets[i].type != TANK) {
+            reseau->sommets[i].demande = 0.0;
+		}
 	}
 }
 

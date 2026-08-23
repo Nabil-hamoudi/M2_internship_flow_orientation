@@ -36,3 +36,9 @@ void compute_flow_edmonds_karp(struct graph* reseau);
 void compute_flow_elevation_prioritaire_ff(struct graph* reseau);
 
 void compute_flow_edmonds_karp_elevation(struct graph* reseau);
+
+void compute_pression_statique(struct graph* reseau, int mode);
+
+void orienter_arcs_par_pression(struct graph* reseau);
+
+void tester_orientation_flow(struct graph* reseau);
