@@ -66,7 +66,7 @@ void print_graph_details(struct graph *G, flotant v_res, flotant v_arc) {
 		a->longueur,
 		a->capacite,
 		a->flow,
-		v_input); // Affichage direct du paramètre
+		v_input);
 	}
 	printf("=====================================================================================\n\n");
 }
@@ -91,6 +91,23 @@ void fix_capacite_flow(struct graph* reseau, float vitesse_reservoir, float vite
 				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (60.0 * vitesse_reservoir)) * 1000.0;
 			} else {
 				reseau->arcs[i].capacite =  (M_PI * (((reseau->arcs[i].diametre/1000) * (reseau->arcs[i].diametre/1000))/4.0) * (60.0 * vitesse_arcs)) * 1000.0;
+			}
+		}
+	}
+	fermeture_arc_ferme(reseau);
+}
+
+void fix_capacite_flow_un(struct graph* reseau) {
+	for (int i=0; i < reseau->nb_arcs ; i++) {
+		struct sommet* source = reseau->arcs[i].source;
+		struct sommet* destination = reseau->arcs[i].destination;
+		if (source->type != SOURCE && destination->type != DESTINATION && source->type != DESTINATION && destination->type != SOURCE) {
+			if (reseau->arcs[i].type != TUYAU) {
+				reseau->arcs[i].capacite = DBL_MAX;
+			} else if (source->type == RESERVOIR) {
+				reseau->arcs[i].capacite =  1.0;
+			} else {
+				reseau->arcs[i].capacite = 1.0;
 			}
 		}
 	}
@@ -557,18 +574,26 @@ void compute_flow_edmonds_karp_elevation(struct graph* reseau) {
 void compute_pression_statique(struct graph* reseau, int mode) {
     if (reseau == NULL || reseau->sommets == NULL || reseau->nb_sommet == 0) return;
 
-    flotant max_elevation = -DBL_MAX;
-    flotant min_elevation = DBL_MAX;
-    flotant sum_elevation = 0.0;
+    flotant max_charge = -DBL_MAX;
+    flotant min_charge = DBL_MAX;
+    flotant sum_charge = 0.0;
     int count_sources = 0;
 
-    // 1. Trouver les sources physiques et évaluer leur élévation/charge
+    // 1. Trouver les sources physiques et évaluer leur charge totale
     for (int i = 0; i < reseau->nb_sommet; i++) {
         if (reseau->sommets[i].type == RESERVOIR || reseau->sommets[i].type == TANK) {
-            flotant elev = reseau->sommets[i].elevation; // L'élévation contient déjà le niveau pour les TANK
-            if (elev > max_elevation) max_elevation = elev;
-            if (elev < min_elevation) min_elevation = elev;
-            sum_elevation += elev;
+            
+            // Pour le calcul de la charge de référence :
+            // Réservoir : charge = élévation
+            // Tank : charge = élévation + pression (qui contient maintenant le niveau)
+            flotant charge_source = reseau->sommets[i].elevation;
+            if (reseau->sommets[i].type == TANK) {
+                charge_source += reseau->sommets[i].pression; 
+            }
+
+            if (charge_source > max_charge) max_charge = charge_source;
+            if (charge_source < min_charge) min_charge = charge_source;
+            sum_charge += charge_source;
             count_sources++;
         }
     }
@@ -579,26 +604,37 @@ void compute_pression_statique(struct graph* reseau, int mode) {
     flotant reference_charge = 0.0;
     switch (mode) {
         case 0: // MAX
-            reference_charge = max_elevation;
+            reference_charge = max_charge;
             break;
         case 1: // MIN
-            reference_charge = min_elevation;
+            reference_charge = min_charge;
             break;
         case 2: // MOYENNE
-            reference_charge = sum_elevation / (flotant)count_sources;
+            reference_charge = sum_charge / (flotant)count_sources;
             break;
         default:
-            reference_charge = max_elevation;
+            reference_charge = max_charge;
             break;
     }
 
-    // 3. Appliquer la charge et calculer la pression statique pour tous les nœuds
+    // 3. Appliquer la charge et calculer la pression statique
     for (int i = 0; i < reseau->nb_sommet; i++) {
         // On exclut les super-sources et super-destinations virtuelles
         if (reseau->sommets[i].type != SOURCE && reseau->sommets[i].type != DESTINATION) {
+            
+            // On attribue la charge de référence choisie à tout le monde
             reseau->sommets[i].charge = reference_charge;
-            // Pression = Charge totale - Élévation du nœud
-            reseau->sommets[i].pression = reference_charge - reseau->sommets[i].elevation;
+            
+            if (reseau->sommets[i].type == TANK) {
+                // Règle 1 : La pression des tanks ne change pas (elle garde le niveau d'eau du parsing)
+                continue;
+            } else if (reseau->sommets[i].type == RESERVOIR) {
+                // Règle 2 : La pression des sources (hors tank) vaut leur charge totale
+                reseau->sommets[i].pression = reference_charge;
+            } else {
+                // Règle générale (Jonctions) : Pression statique = Charge - Élévation
+                reseau->sommets[i].pression = reference_charge - reseau->sommets[i].elevation;
+            }
         }
     }
 }
@@ -654,3 +690,143 @@ void tester_orientation_flow(struct graph* reseau) {
         }
     }
 }
+
+flotant compute_min_cut(struct graph* reseau) {
+    if (reseau == NULL) return -1.0;
+
+    // Étape 1 : Mettre les capacités du réseau à 1
+    fix_capacite_flow_un(reseau);
+
+    // Étape 2 : Ajouter la Super-Source et Super-Destination (On garde votre fonction d'origine)
+    ajout_source_destination(reseau);
+
+    // Étape 3 : Capacités pour les arcs sortants de la super-source
+    for (int i = 0; i < reseau->sommet_source->degree; i++) {
+        struct sommet* dest = reseau->sommet_source->arcs[i].arc_sortant->destination;
+        
+        // Si c'est un Tank et qu'il ne peut pas émettre (vide), capacité = 0
+        if (dest->type == TANK && dest->emmission <= 0.0) {
+            reseau->sommet_source->arcs[i].arc_sortant->capacite = 0.0;
+        } else {
+            // Sinon (Réservoirs ou Tanks valides), capacité infinie
+            reseau->sommet_source->arcs[i].arc_sortant->capacite = DBL_MAX;
+        }
+        reseau->sommet_source->arcs[i].arc_entrant->capacite = 0.0;
+    }
+
+    // Étape 4 : Capacités pour les arcs entrants de la super-destination
+    for (int i = 0; i < reseau->sommet_destination->degree; i++) {
+        struct sommet* src = reseau->sommet_destination->arcs[i].arc_entrant->source;
+        
+        // Si c'est un Tank et qu'il ne peut plus recevoir (plein), capacité = 0
+        if (src->type == TANK) {
+            reseau->sommet_destination->arcs[i].arc_entrant->capacite = 0.0;
+        } else {
+            // Sinon (Jonctions demandeuses ou Tanks valides), capacité infinie
+            reseau->sommet_destination->arcs[i].arc_entrant->capacite = DBL_MAX;
+        }
+        reseau->sommet_destination->arcs[i].arc_sortant->capacite = 0.0;
+    }
+
+    // Étape 5 : Remettre tous les flux existants à zéro
+    nullifier_flow(reseau);
+
+    // Étape 6 : Résoudre le flot maximum (Edmonds-Karp)
+    start_flow_ford_fukerson(reseau, generer_ordre_aleatoire);
+
+    // Étape 7 : Calculer la valeur de la coupe min
+    flotant min_cut_value = 0.0;
+    for (int i = 0; i < reseau->sommet_destination->degree; i++) {
+        min_cut_value += reseau->sommet_destination->arcs[i].arc_entrant->flow;
+    }
+
+    // Étape 8 : Nettoyer le graphe en retirant les super-nœuds
+    delete_source_destination(reseau);
+
+    return min_cut_value;
+}
+
+void orienter_st_harmonique(struct graph* reseau) {
+    if (reseau == NULL || reseau->sommets == NULL) {
+        return;
+    }
+
+    int n = reseau->nb_sommet; //[cite: 14]
+    flotant* potentiel = malloc(n * sizeof(flotant));
+    flotant* nouveau_potentiel = malloc(n * sizeof(flotant));
+    int* est_ancrage = calloc(n, sizeof(int));
+
+    // 1. Initialisation avec l'élévation physique et détection des ancrages naturels
+    for (int i = 0; i < n; i++) {
+        struct sommet* u = &reseau->sommets[i]; //[cite: 14]
+        potentiel[i] = u->elevation; //[cite: 14]
+        
+        if (u->type == RESERVOIR || u->type == TANK || u->demande != 0.0) { //[cite: 14]
+            est_ancrage[i] = 1;
+        }
+    }
+
+    // 2. Lissage de Laplace (Méthode itérative de Jacobi standard)
+    int iterations = 20000; //[cite: 14]
+    for (int iter = 0; iter < iterations; iter++) {
+        for (int i = 0; i < n; i++) {
+            // Ancrage fixe sur l'élévation naturelle
+            if (est_ancrage[i]) {
+                nouveau_potentiel[i] = reseau->sommets[i].elevation; //[cite: 14]
+                continue;
+            }
+
+            struct sommet* u = &reseau->sommets[i]; //[cite: 14]
+            if (u->degree == 0) { //[cite: 14]
+                nouveau_potentiel[i] = potentiel[i];
+                continue;
+            }
+
+            flotant somme = 0.0;
+            for (int j = 0; j < u->degree; j++) { //[cite: 14]
+                struct sommet* voisin = u->arcs[j].arc_sortant->destination; //[cite: 14]
+                int v_idx = voisin - reseau->sommets; //[cite: 14]
+                somme += potentiel[v_idx];
+            }
+            nouveau_potentiel[i] = somme / (flotant)u->degree; //[cite: 14]
+        }
+
+        for (int i = 0; i < n; i++) {
+            potentiel[i] = nouveau_potentiel[i];
+        }
+    }
+
+    // 3. Orientation des arcs basée sur le gradient du potentiel
+    for (int i = 0; i < reseau->nb_arcs; i += 2) { //[cite: 14]
+        struct arc* arc_aller = &reseau->arcs[i]; //[cite: 14]
+        struct arc* arc_retour = &reseau->arcs[i+1]; //[cite: 14]
+        
+        int src_idx = arc_aller->source - reseau->sommets; //[cite: 14]
+        int dest_idx = arc_aller->destination - reseau->sommets; //[cite: 14]
+
+        flotant diff = potentiel[src_idx] - potentiel[dest_idx];
+
+        if (diff > 0.0) {
+            arc_retour->capacite = 0.0; //[cite: 14]
+            arc_retour->ouvert = 0; //[cite: 14]
+        } else if (diff < 0.0) {
+            arc_aller->capacite = 0.0; //[cite: 14]
+            arc_aller->ouvert = 0; //[cite: 14]
+        } else {
+            if (src_idx > dest_idx) {
+                arc_retour->capacite = 0.0; //[cite: 14]
+                arc_retour->ouvert = 0; //[cite: 14]
+            } else {
+                arc_aller->capacite = 0.0; //[cite: 14]
+                arc_aller->ouvert = 0; //[cite: 14]
+            }
+        }
+    }
+
+    fermeture_arc_ferme(reseau); //[cite: 14]
+
+    free(est_ancrage);
+    free(potentiel);
+    free(nouveau_potentiel);
+}
+

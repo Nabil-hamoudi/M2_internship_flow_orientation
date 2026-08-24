@@ -48,6 +48,10 @@ def compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
     elif choix_ori == "Pression Statique":
         ffi_wrapper.compute_pression_statique(reseau, 0)
         ffi_wrapper.orienter_arcs_par_pression(reseau)
+    elif choix_ori == "Orientation Laplace":
+        ffi_wrapper.orienter_st_harmonique(reseau)
+    elif choix_ori == "Orientation Laplace tuyau":
+        ffi_wrapper.orienter_st_harmonique_hydraulique(reseau)
 
 def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa=1.0, portion=1.0, ecart_type=0.3):
     ffi_wrapper.modif_multiplicateur(projet, max(mult_epa, 1e-6))

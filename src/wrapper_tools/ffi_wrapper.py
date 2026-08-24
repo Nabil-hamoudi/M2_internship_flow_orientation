@@ -160,3 +160,12 @@ def orienter_arcs_par_pression(p_reseau):
 def tester_orientation_flow(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.tester_orientation_flow(p_reseau)
+
+
+def orienter_st_harmonique(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_st_harmonique(p_reseau)
+
+def orienter_st_harmonique_hydraulique(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_st_harmonique_hydraulique(p_reseau)

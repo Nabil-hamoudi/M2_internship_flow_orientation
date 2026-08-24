@@ -42,3 +42,9 @@ void compute_pression_statique(struct graph* reseau, int mode);
 void orienter_arcs_par_pression(struct graph* reseau);
 
 void tester_orientation_flow(struct graph* reseau);
+
+flotant compute_min_cut(struct graph* reseau);
+
+void orienter_st_harmonique(struct graph* reseau);
+
+void orienter_st_harmonique_hydraulique(struct graph* reseau);

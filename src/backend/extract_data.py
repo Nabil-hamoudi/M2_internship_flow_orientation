@@ -4,7 +4,7 @@ from src.wrapper_tools import analyse_tools
 
 # --- CONSTANTES PARTAGÉES ---
 ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp", "Ford-Fulkerson_elevation", "Edmonds-Karp_elevation", "Test Orientation")
-ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp", "Pression Statique")
+ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp", "Pression Statique", "Orientation Laplace", "Orientation Laplace tuyau")
 CAPACITES = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 DEMANDES = ("Inchanger", "Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
 COULEURS_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
@@ -92,8 +92,12 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
                     r_src, r_epa, r_dst, r_v, r_p, r_ecart,
                     t_src, t_epa, t_dst, t_v, t_p, t_ecart):
     """Calcule les métriques comparatives entre le graphe de référence et le graphe cible."""
+    # 1. Calculs nécessitant l'état intact des flux et capacités
     wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
     wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
+    wape_p = analyse_tools.get_wape_pression(graph_ref, graph_tgt) * 100
+    wp_p = analyse_tools.get_wp_pression(graph_ref, graph_tgt) * 100
+    
     sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
     sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
     jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
@@ -107,6 +111,16 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
     nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
     nb_inter_nul = np.intersect1d(analyse_tools.extraire_arcs_nulles(graph_ref), analyse_tools.extraire_arcs_nulles(graph_tgt)).shape[0] / 2
 
+    nb_nodes = analyse_tools.get_n_sommet(graph_tgt)
+    nb_edges = analyse_tools.get_n_arcs_no(graph_tgt)
+    
+    ref_dp_pos_zero, ref_dp_neg = analyse_tools.get_pressure_diff_stats(graph_ref)
+    tgt_dp_pos_zero, tgt_dp_neg = analyse_tools.get_pressure_diff_stats(graph_tgt)
+
+    # 2. Calculs altérant l'état du graphe (À FAIRE EN DERNIER)
+    # Exécuté uniquement sur la cible car la topologie est identique à la référence.
+    min_cut_val = analyse_tools.compute_min_cut(graph_tgt)
+
     return {
         "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
         "target_uid": tgt['uid'], "target_name": tgt['name'], 
@@ -115,12 +129,21 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
         "flags": flags,
         "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p, "ref_ecart_type": r_ecart,
         "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p, "tgt_ecart_type": t_ecart,
-        "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
+        "wape": wape, "wp": wp, 
+        "wape_p": wape_p, "wp_p": wp_p,
+        "sat_ref": sat_ref, "sat_tgt": sat_tgt,
         "jaccard": jaccard_d,  
         "arc_nul_ref": (arcs_nul_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
         "arc_non_nul_ref" : arcs_non_nul_ref, 
         "arc_nul_cible": (arcs_nul_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
         "arc_non_nul_cible": arcs_non_nul_tgt,
         "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
-        "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
+        "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
+        "nb_nodes": nb_nodes,
+        "nb_edges": nb_edges,
+        "ref_dp_pos_zero": ref_dp_pos_zero,
+        "ref_dp_neg": ref_dp_neg,
+        "tgt_dp_pos_zero": tgt_dp_pos_zero,
+        "tgt_dp_neg": tgt_dp_neg,
+        "min_cut": min_cut_val # <-- Ajout au dictionnaire final
     }
