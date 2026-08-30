@@ -47,4 +47,4 @@ flotant compute_min_cut(struct graph* reseau);
 
 void orienter_st_harmonique(struct graph* reseau);
 
-void orienter_st_harmonique_hydraulique(struct graph* reseau);
+void annuler_circuits_flot(struct graph* reseau);

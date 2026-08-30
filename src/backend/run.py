@@ -35,6 +35,22 @@ def compute_algo(reseau, choix, m_src, m_dst):
         ffi_wrapper.nullifier_flow(reseau)
         ffi_wrapper.compute_flow_edmonds_karp_elevation(reseau)
         ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Ford-Fulkerson_annulation":
+        ffi_wrapper.ajout_source_destination(reseau)
+        ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+        ffi_wrapper.ajout_capacite_source(reseau, m_src)
+        ffi_wrapper.nullifier_flow(reseau)
+        ffi_wrapper.compute_flow_ford_fukerson(reseau)
+        ffi_wrapper.annuler_circuits_flot(reseau)
+        ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Ford-Fulkerson_elevation_annulation":
+        ffi_wrapper.ajout_source_destination(reseau)
+        ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+        ffi_wrapper.ajout_capacite_source(reseau, m_src)
+        ffi_wrapper.nullifier_flow(reseau)
+        ffi_wrapper.compute_flow_elevation_prioritaire_ff(reseau)
+        ffi_wrapper.annuler_circuits_flot(reseau)
+        ffi_wrapper.delete_source_destination(reseau)
     elif choix == "Test Orientation":
         ffi_wrapper.tester_orientation_flow(reseau)
 

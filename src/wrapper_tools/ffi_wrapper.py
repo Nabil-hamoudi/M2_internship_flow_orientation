@@ -169,3 +169,7 @@ def orienter_st_harmonique(p_reseau):
 def orienter_st_harmonique_hydraulique(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.orienter_st_harmonique_hydraulique(p_reseau)
+
+def annuler_circuits_flot(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.annuler_circuits_flot(p_reseau)
