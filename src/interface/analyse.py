@@ -304,11 +304,17 @@ class AnalysisWindow(tk.Frame):
 
         bins_f = tk.Frame(self.sidebar, bg="#ecf0f1")
         bins_f.pack(fill=tk.X, pady=5)
-        tk.Label(bins_f, text="Nb divisions (ou [0,5]):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.bins_var = tk.Entry(bins_f, width=10)
+        tk.Label(bins_f, text="Intervalles/Div X:", bg="#ecf0f1", font=("Segoe UI", 8)).grid(row=0, column=0, sticky="w")
+        self.bins_var = tk.Entry(bins_f, width=12)
         self.bins_var.insert(0, "15")
-        self.bins_var.pack(side=tk.RIGHT, padx=5)
+        self.bins_var.grid(row=0, column=1, padx=2, pady=2)
         self.bins_var.bind("<Return>", self.update_plot)
+        
+        tk.Label(bins_f, text="Y (Heatmap):", bg="#ecf0f1", font=("Segoe UI", 8)).grid(row=1, column=0, sticky="w")
+        self.bins_y_var = tk.Entry(bins_f, width=12)
+        self.bins_y_var.insert(0, "15")
+        self.bins_y_var.grid(row=1, column=1, padx=2, pady=2)
+        self.bins_y_var.bind("<Return>", self.update_plot)
 
         tk.Label(self.sidebar, text="Statistiques", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
         
@@ -745,32 +751,41 @@ class AnalysisWindow(tk.Frame):
         y_k = self.keys_map.get(y_sel, None)
 
         try:
-            bins_str = self.bins_var.get().strip()
-            if ';' in bins_str:
-                custom_mode = "intervals"
-                parsed_intervals = []
-                for part in bins_str.split(';'):
-                    part = part.strip()
-                    if not part: continue
-                    inc_min = part.startswith('[')
-                    inc_max = part.endswith(']')
-                    inner = part[1:-1].split(',')
-                    min_v = float(inner[0].strip().replace('+inf', 'inf').replace('-inf', '-inf'))
-                    max_v = float(inner[1].strip().replace('+inf', 'inf').replace('-inf', '-inf'))
-                    parsed_intervals.append((min_v, max_v, inc_min, inc_max, part))
-            elif ',' in bins_str:
-                custom_mode = "edges"
-                bins_val = [float(x.strip()) for x in bins_str.split(',') if x.strip()]
-                if len(bins_val) < 2: 
-                    bins_val = 15
-                    custom_mode = "auto"
-            else:
-                custom_mode = "auto"
-                bins_val = int(bins_str)
-                if bins_val <= 0: bins_val = 15
+            def parse_bins(bin_str):
+                try:
+                    b_str = bin_str.strip()
+                    if ';' in b_str:
+                        intervals = []
+                        for part in b_str.split(';'):
+                            part = part.strip()
+                            if not part: continue
+                            inc_min = part.startswith('[')
+                            inc_max = part.endswith(']')
+                            inner = part[1:-1].split(',')
+                            min_v = float(inner[0].strip().replace('+inf', 'inf').replace('-inf', '-inf'))
+                            max_v = float(inner[1].strip().replace('+inf', 'inf').replace('-inf', '-inf'))
+                            intervals.append((min_v, max_v, inc_min, inc_max, part))
+                        return "intervals", intervals
+                    elif ',' in b_str:
+                        b_val = [float(x.strip()) for x in b_str.split(',') if x.strip()]
+                        if len(b_val) < 2: return "auto", 15
+                        return "edges", b_val
+                    else:
+                        return "auto", max(1, int(b_str))
+                except Exception:
+                    return "auto", 15
+
+            x_mode, x_bins = parse_bins(self.bins_var.get())
+            y_mode, y_bins = parse_bins(self.bins_y_var.get())
+            
+            custom_mode = x_mode
+            parsed_intervals = x_bins if x_mode == "intervals" else []
+            bins_val = x_bins if x_mode != "intervals" else 15
         except Exception:
             custom_mode = "auto"
             bins_val = 15
+            x_mode, x_bins = "auto", 15
+            y_mode, y_bins = "auto", 15
 
         self.fig.clf()
         self.ax = self.fig.add_subplot(111)
@@ -884,33 +899,140 @@ class AnalysisWindow(tk.Frame):
             self.ax.legend(handles=legend_elements, loc='best', fontsize=9)
 
         elif plot_type == "Carte de chaleur (2D)":
-            if len(all_x_data) > 0 and (isinstance(all_x_data[0], str) or isinstance(all_y_data[0], str)):
-                messagebox.showwarning("Incompatible", "La carte de chaleur ne supporte pas les axes catégoriels (textes).")
-                return
-
             c_selection = self.c_var.get()
             c_k = self.keys_map.get(c_selection) if c_selection not in ["Cibles", "Fichiers", "Aucune"] else None
 
-            H_count, xedges, yedges = np.histogram2d(all_x_data, all_y_data, bins=bins_val if isinstance(bins_val, int) else 15)
+            def apply_intervals(data, mode, bins):
+                if mode == "intervals":
+                    cats = [lbl for _, _, _, _, lbl in bins]
+                    new_data = []
+                    for val in data:
+                        if isinstance(val, str):
+                            new_data.append(val)
+                            continue
+                        found = False
+                        for min_v, max_v, inc_min, inc_max, label in bins:
+                            if ((val >= min_v) if inc_min else (val > min_v)) and ((val <= max_v) if inc_max else (val < max_v)):
+                                new_data.append(label)
+                                found = True
+                                break
+                        if not found:
+                            new_data.append("Hors limites")
+                    if "Hors limites" in new_data:
+                        cats.append("Hors limites")
+                    return True, new_data, cats
+                return False, data, None
 
-            if c_k:
-                c_data = [r[c_k] for r in filtered_results]
-                H_sum, _, _ = np.histogram2d(all_x_data, all_y_data, bins=bins_val if isinstance(bins_val, int) else 15, weights=c_data)
-                with np.errstate(divide='ignore', invalid='ignore'):
-                    Z = np.true_divide(H_sum, H_count)
+            x_transformed, all_x_data, x_cat_ordered = apply_intervals(all_x_data, x_mode, x_bins)
+            y_transformed, all_y_data, y_cat_ordered = apply_intervals(all_y_data, y_mode, y_bins)
+
+            x_is_cat = len(all_x_data) > 0 and isinstance(all_x_data[0], str)
+            y_is_cat = len(all_y_data) > 0 and isinstance(all_y_data[0], str)
+
+            if x_is_cat:
+                x_categories = x_cat_ordered if x_transformed else sorted(list(set(all_x_data)))
+                x_cat_map = {v: i for i, v in enumerate(x_categories)}
             else:
-                Z = H_count
+                x_categories = None
 
-            Z[H_count == 0] = np.nan
-            im = self.ax.imshow(Z.T, cmap='plasma', aspect='auto', origin='lower')
+            if y_is_cat:
+                y_categories = y_cat_ordered if y_transformed else sorted(list(set(all_y_data)))
+                y_cat_map = {v: i for i, v in enumerate(y_categories)}
+            else:
+                y_categories = None
 
-            x_centers = (xedges[:-1] + xedges[1:]) / 2
-            y_centers = (yedges[:-1] + yedges[1:]) / 2
-            self.ax.set_xticks(np.arange(len(x_centers)))
-            self.ax.set_yticks(np.arange(len(y_centers)))
-            self.ax.set_xticklabels([f"{v:.2f}" for v in x_centers], rotation=45, ha='right', fontsize=8)
-            self.ax.set_yticklabels([f"{v:.2f}" for v in y_centers], fontsize=8)
-            
+            if x_is_cat and y_is_cat:
+                nb_x, nb_y = len(x_categories), len(y_categories)
+                H_count = np.zeros((nb_x, nb_y))
+                H_sum = np.zeros((nb_x, nb_y))
+                for idx, r in enumerate(filtered_results):
+                    xi, yi = x_cat_map[all_x_data[idx]], y_cat_map[all_y_data[idx]]
+                    H_count[xi, yi] += 1
+                    if c_k and not isinstance(r[c_k], str):
+                        H_sum[xi, yi] += r[c_k]
+                if c_k:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
+            elif x_is_cat:
+                nb_x = len(x_categories)
+                yb = y_bins if y_mode == "edges" or isinstance(y_bins, int) else 15
+                y_edges = np.histogram_bin_edges(all_y_data, bins=yb)
+                nb_y = len(y_edges) - 1
+                H_count = np.zeros((nb_x, nb_y))
+                H_sum = np.zeros((nb_x, nb_y))
+                y_indices = np.clip(np.digitize(all_y_data, y_edges) - 1, 0, nb_y - 1)
+                for idx, r in enumerate(filtered_results):
+                    xi, yi = x_cat_map[all_x_data[idx]], y_indices[idx]
+                    H_count[xi, yi] += 1
+                    if c_k and not isinstance(r[c_k], str):
+                        H_sum[xi, yi] += r[c_k]
+                if c_k:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
+            elif y_is_cat:
+                nb_y = len(y_categories)
+                xb = x_bins if x_mode == "edges" or isinstance(x_bins, int) else 15
+                x_edges = np.histogram_bin_edges(all_x_data, bins=xb)
+                nb_x = len(x_edges) - 1
+                H_count = np.zeros((nb_x, nb_y))
+                H_sum = np.zeros((nb_x, nb_y))
+                x_indices = np.clip(np.digitize(all_x_data, x_edges) - 1, 0, nb_x - 1)
+                for idx, r in enumerate(filtered_results):
+                    xi, yi = x_indices[idx], y_cat_map[all_y_data[idx]]
+                    H_count[xi, yi] += 1
+                    if c_k and not isinstance(r[c_k], str):
+                        H_sum[xi, yi] += r[c_k]
+                if c_k:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
+            else:
+                xb = x_bins if x_mode == "edges" or isinstance(x_bins, int) else 15
+                yb = y_bins if y_mode == "edges" or isinstance(y_bins, int) else 15
+                H_count, xedges, yedges = np.histogram2d(all_x_data, all_y_data, bins=[xb, yb])
+                if c_k:
+                    c_data = [r[c_k] for r in filtered_results]
+                    H_sum, _, _ = np.histogram2d(all_x_data, all_y_data, bins=[xb, yb], weights=c_data)
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
+
+            im = self.ax.imshow(Z.T, cmap='plasma', aspect='auto', origin='lower', interpolation='nearest')
+
+            if x_is_cat:
+                self.ax.set_xticks(np.arange(len(x_categories)))
+                self.ax.set_xticklabels(x_categories, rotation=45, ha='right', fontsize=8)
+            elif 'xedges' in dir():
+                x_centers = (xedges[:-1] + xedges[1:]) / 2
+                self.ax.set_xticks(np.arange(len(x_centers)))
+                self.ax.set_xticklabels([f"{v:.2f}" for v in x_centers], rotation=45, ha='right', fontsize=8)
+            elif 'x_edges' in dir():
+                x_centers = (x_edges[:-1] + x_edges[1:]) / 2
+                self.ax.set_xticks(np.arange(len(x_centers)))
+                self.ax.set_xticklabels([f"{v:.2f}" for v in x_centers], rotation=45, ha='right', fontsize=8)
+
+            if y_is_cat:
+                self.ax.set_yticks(np.arange(len(y_categories)))
+                self.ax.set_yticklabels(y_categories, fontsize=8)
+            elif 'yedges' in dir():
+                y_centers = (yedges[:-1] + yedges[1:]) / 2
+                self.ax.set_yticks(np.arange(len(y_centers)))
+                self.ax.set_yticklabels([f"{v:.2f}" for v in y_centers], fontsize=8)
+            elif 'y_edges' in dir():
+                y_centers = (y_edges[:-1] + y_edges[1:]) / 2
+                self.ax.set_yticks(np.arange(len(y_centers)))
+                self.ax.set_yticklabels([f"{v:.2f}" for v in y_centers], fontsize=8)
+
             cbar = self.fig.colorbar(im, ax=self.ax)
             cbar.set_label(f"Moyenne : {c_selection}" if c_k else "Densité (Nombre de réseaux)", fontsize=9)
 
