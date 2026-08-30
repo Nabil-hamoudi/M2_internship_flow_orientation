@@ -66,8 +66,16 @@ def compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
         ffi_wrapper.orienter_arcs_par_pression(reseau)
     elif choix_ori == "Orientation Laplace":
         ffi_wrapper.orienter_st_harmonique(reseau)
-    elif choix_ori == "Orientation Laplace tuyau":
-        ffi_wrapper.orienter_st_harmonique_hydraulique(reseau)
+    elif choix_ori == "Orientation s-t elevation":
+        ffi_wrapper.orienter_elevation_dfs(reseau)
+    elif choix_ori == "Orientation Elevation Descendante":
+        ffi_wrapper.orienter_elevation_descendante(reseau)
+    elif choix_ori == "Orientation s-t aleatoire":
+        ffi_wrapper.orienter_aleatoire_dfs(reseau)
+    elif choix_ori == "Orientation DAG aleatoire":
+        ffi_wrapper.orienter_dag_aleatoire(reseau)
+    elif choix_ori == "Orientation completement aleatoire":
+        ffi_wrapper.orienter_completement_aleatoire(reseau)
 
 def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa=1.0, portion=1.0, ecart_type=0.3):
     ffi_wrapper.modif_multiplicateur(projet, max(mult_epa, 1e-6))
@@ -160,8 +168,7 @@ def run_analysis_worker(task_args):
     try:
         projet = ffi_wrapper.create_epanet_project(filepath)
 
-        if seed_val is not None:
-            ffi_wrapper.set_random_seed(seed_val)
+        ffi_wrapper.set_random_seed(seed_val)
         
         if rand_type == "Uniforme":
             ffi_wrapper.randomise_demande(projet)

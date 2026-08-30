@@ -4,7 +4,7 @@ from src.wrapper_tools import analyse_tools
 
 # --- CONSTANTES PARTAGÉES ---
 ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp", "Ford-Fulkerson_elevation", "Edmonds-Karp_elevation", "Ford-Fulkerson_annulation", "Ford-Fulkerson_elevation_annulation", "Test Orientation")
-ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp", "Pression Statique", "Orientation Laplace", "Orientation Laplace tuyau")
+ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp", "Pression Statique", "Orientation Laplace", "Orientation s-t elevation", "Orientation Elevation Descendante", "Orientation s-t aleatoire", "Orientation DAG aleatoire", "Orientation completement aleatoire")
 CAPACITES = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 DEMANDES = ("Inchanger", "Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
 COULEURS_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
@@ -107,9 +107,14 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
     arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt))) * 100
     arcs_nul_tgt = analyse_tools.get_n_arcs_nulles(graph_tgt)
 
-    nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
-    nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
-    nb_inter_nul = np.intersect1d(analyse_tools.extraire_arcs_nulles(graph_ref), analyse_tools.extraire_arcs_nulles(graph_tgt)).shape[0] / 2
+    dom_ref = analyse_tools.extraire_arcs_orientes_dominants(graph_ref)
+    dom_tgt = analyse_tools.extraire_arcs_orientes_dominants(graph_tgt)
+    nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
+
+    nb_dom_ref = dom_ref.shape[0]
+    nb_inter_dom = np.intersect1d(dom_ref, dom_tgt).shape[0]
+    nb_mal_non_oriente = np.intersect1d(dom_ref, nul_tgt).shape[0]
+    nb_mal_oriente = nb_dom_ref - nb_inter_dom - nb_mal_non_oriente
 
     nb_nodes = analyse_tools.get_n_sommet(graph_tgt)
     nb_edges = analyse_tools.get_n_arcs_no(graph_tgt)
@@ -137,8 +142,8 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
         "arc_non_nul_ref" : arcs_non_nul_ref, 
         "arc_nul_cible": (arcs_nul_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
         "arc_non_nul_cible": arcs_non_nul_tgt,
-        "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
-        "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
+        "ratio_nul_tgt_ref": ((nb_mal_non_oriente / nb_dom_ref) * 100) if nb_dom_ref > 0 else 0.0,
+        "ratio_inter_ref": ((nb_mal_oriente / nb_dom_ref) * 100) if nb_dom_ref > 0 else 0.0,
         "nb_nodes": nb_nodes,
         "nb_edges": nb_edges,
         "ref_dp_pos_zero": ref_dp_pos_zero,

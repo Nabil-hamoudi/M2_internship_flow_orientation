@@ -341,7 +341,7 @@ void generer_ordre_elevation(struct sommet* depart, int* indices, int taille) {
 
     for (int i = 0; i < taille; i++) {
         struct sommet* voisin = depart->arcs[i].arc_sortant->destination;
-        int key = (int) (voisin->elevation * 10000.0);
+        int key = (int) (voisin->elevation * 1000.0);
 
         packed_array[i] = (key * taille) + i;
     }
@@ -360,7 +360,7 @@ flotant parcours_ff_iteratif(struct graph* reseau, fonction_ordre_t generer_ordr
 	flotant epsilon = 0.0;
 	int nb_s = reseau->nb_sommet;
 
-	struct sommet** pile = malloc((reseau->nb_arcs + 1) * sizeof(struct sommet*));
+	struct sommet* pile[nb_s];
 	struct arc* parent_arc[nb_s];
 	int is_inverse[nb_s];
 	flotant path_flow[nb_s];
@@ -372,6 +372,7 @@ flotant parcours_ff_iteratif(struct graph* reseau, fonction_ordre_t generer_ordr
 
 	pile[top++] = source;
 	path_flow[source_idx] = DBL_MAX;
+	source->marque = 1;
 
 	int dest_idx = -1;
 
@@ -379,36 +380,24 @@ flotant parcours_ff_iteratif(struct graph* reseau, fonction_ordre_t generer_ordr
 		struct sommet* u = pile[--top];
 		int u_idx = u - reseau->sommets;
 
-		if (u->marque) continue;
-		u->marque = 1;
-
 		if (u->type == DESTINATION) {
 			dest_idx = u_idx;
 			break;
 		}
 
-		/* Déterminer si u est un TANK atteint directement depuis la super-source (chaîne de taille 1) */
-		int u_direct_from_source = (u->type == TANK && u_idx != source_idx &&
-			((!is_inverse[u_idx] && parent_arc[u_idx]->source == source) ||
-			 (is_inverse[u_idx] && parent_arc[u_idx]->destination == source)));
-
 		int indices[u->degree];
 		generer_ordre(u, indices, u->degree);
 
-		for (int k = 0; k < u->degree; k++) {
-			int i = indices[k];
+		for (int k = u->degree - 1; k >= 0; k--) {
+    		int i = indices[k];
 			flotant flow_ajoutable;
-
-			/* Skip : interdire chaîne supersource -> tank -> superdestination (2 arcs) */
-			if (u_direct_from_source && u->arcs[i].arc_sortant->destination->type == DESTINATION) {
-				continue;
-			}
 
 			struct arc* arc_out = u->arcs[i].arc_sortant;
 			struct sommet* v_out = arc_out->destination;
 			flow_ajoutable = arc_out->capacite - arc_out->flow;
 
 			if (flow_ajoutable > epsilon && !v_out->marque) {
+				v_out->marque = 1;
 				int v_idx = v_out - reseau->sommets;
 				parent_arc[v_idx] = arc_out;
 				is_inverse[v_idx] = 0;
@@ -421,6 +410,7 @@ flotant parcours_ff_iteratif(struct graph* reseau, fonction_ordre_t generer_ordr
 			flow_ajoutable = arc_in->flow;
 
 			if (flow_ajoutable > epsilon && !v_in->marque) {
+				v_in->marque = 1;
 				int v_idx = v_in - reseau->sommets;
 				parent_arc[v_idx] = arc_in;
 				is_inverse[v_idx] = 1;
@@ -445,11 +435,9 @@ flotant parcours_ff_iteratif(struct graph* reseau, fonction_ordre_t generer_ordr
 				curr_idx = arc->source - reseau->sommets;
 			}
 		}
-		free(pile);
 		return new_flot;
 	}
 
-	free(pile);
 	return -1.0;
 }
 
@@ -485,37 +473,18 @@ flotant parcours_ek(struct file* file, struct file** end_file, fonction_ordre_t 
 	flotant flow = file->flow_ajoutable;
 	if (sommet->type == DESTINATION) {return flow;}
 
-	/* Déterminer si le sommet courant est un TANK atteint directement depuis la super-source (chaîne de taille 1) */
-	int direct_from_source = (sommet->type == TANK && file->precedent != NULL &&
-		file->precedent->sommet->type == SOURCE);
-
 	int indices[sommet->degree];
 	generer_ordre(sommet, indices, sommet->degree);
 
 	for (int k = 0; k < sommet->degree; k++) {
 		int i = indices[k];
 
-		/* Skip : interdire chaîne supersource -> tank -> superdestination (2 arcs) */
-		if (direct_from_source && sommet->arcs[i].arc_sortant->destination->type == DESTINATION) {
-			continue;
-		}
-
-		int is_u_source = (sommet->type == SOURCE);
-
 		flow_ajoutable = sommet->arcs[i].arc_sortant->capacite - sommet->arcs[i].arc_sortant->flow;
-		struct sommet* v_out = sommet->arcs[i].arc_sortant->destination;
-		int can_visit_out = 0;
-		if (v_out->marque == 0) {
-			can_visit_out = 1;
-		} else if (v_out->marque == 1 && !is_u_source) {
-			can_visit_out = 1;
-		}
-
-		if (flow_ajoutable > epsilon && can_visit_out) {
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_sortant->destination->marque) {
 			flow_ajoutable = fmin(flow, flow_ajoutable);
-			v_out->marque = is_u_source ? 1 : 2;
+			sommet->arcs[i].arc_sortant->destination->marque = 1;
 			struct file* sommet_suivant = malloc(sizeof(struct file));
-			sommet_suivant->sommet = v_out;
+			sommet_suivant->sommet = sommet->arcs[i].arc_sortant->destination;
 			sommet_suivant->flow_ajoutable = flow_ajoutable;
 			sommet_suivant->arc = sommet->arcs[i].arc_sortant;
 			sommet_suivant->inverse = 1;
@@ -524,21 +493,12 @@ flotant parcours_ek(struct file* file, struct file** end_file, fonction_ordre_t 
 			(*end_file)->suivant = sommet_suivant;
 			*end_file = sommet_suivant;
 		}
-
 		flow_ajoutable = sommet->arcs[i].arc_entrant->flow;
-		struct sommet* v_in = sommet->arcs[i].arc_entrant->source;
-		int can_visit_in = 0;
-		if (v_in->marque == 0) {
-			can_visit_in = 1;
-		} else if (v_in->marque == 1 && !is_u_source) {
-			can_visit_in = 1;
-		}
-
-		if (flow_ajoutable > epsilon && can_visit_in) {
+		if (flow_ajoutable > epsilon && !sommet->arcs[i].arc_entrant->source->marque) {
 			flow_ajoutable = fmin(flow, flow_ajoutable);
-			v_in->marque = is_u_source ? 1 : 2;
+			sommet->arcs[i].arc_entrant->source->marque = 1;
 			struct file* sommet_suivant = malloc(sizeof(struct file));
-			sommet_suivant->sommet = v_in;
+			sommet_suivant->sommet = sommet->arcs[i].arc_entrant->source;
 			sommet_suivant->flow_ajoutable = flow_ajoutable;
 			sommet_suivant->arc = sommet->arcs[i].arc_entrant;
 			sommet_suivant->inverse = -1;
@@ -899,3 +859,278 @@ void annuler_circuits_flot(struct graph* reseau) {
     free(parent_arc);
 }
 
+void dfs_bipolar_generic(struct graph* reseau, struct sommet* u, struct sommet* p, int* dfn, int* low, struct sommet** parent, struct sommet** preorder, int* dfs_time, void (*generer_ordre)(struct sommet*, int*, int)) {
+	int u_idx = u - reseau->sommets;
+	dfn[u_idx] = *dfs_time;
+	low[u_idx] = *dfs_time;
+	preorder[*dfs_time] = u;
+	(*dfs_time)++;
+	parent[u_idx] = p;
+	u->marque = 1;
+	
+	if (u->degree == 0) return;
+	
+	int* indices = malloc(u->degree * sizeof(int));
+	generer_ordre(u, indices, u->degree);
+	
+	for (int k = 0; k < u->degree; k++) {
+		int idx = indices[k];
+		struct arc* arc = u->arcs[idx].arc_sortant;
+		struct sommet* v = arc->destination;
+		
+		if (v == p) continue; 
+		
+		int v_idx = v - reseau->sommets;
+		if (!v->marque) {
+			dfs_bipolar_generic(reseau, v, u, dfn, low, parent, preorder, dfs_time, generer_ordre);
+			if (low[v_idx] < low[u_idx]) {
+				low[u_idx] = low[v_idx];
+			}
+		} else {
+			if (dfn[v_idx] < low[u_idx]) {
+				low[u_idx] = dfn[v_idx];
+			}
+		}
+	}
+	free(indices);
+}
+
+void orienter_st_numbering_generic(struct graph* reseau, void (*generer_ordre)(struct sommet*, int*, int)) {
+	if (reseau == NULL || reseau->sommets == NULL) return;
+
+	ajout_source_destination(reseau);
+
+	for (int i = 0; i < reseau->sommet_source->degree; i++) {
+		reseau->sommet_source->arcs[i].arc_sortant->capacite = DBL_MAX;
+		reseau->sommet_source->arcs[i].arc_entrant->capacite = 0.0;
+	}
+	for (int i = 0; i < reseau->sommet_destination->degree; i++) {
+		reseau->sommet_destination->arcs[i].arc_entrant->capacite = DBL_MAX;
+		reseau->sommet_destination->arcs[i].arc_sortant->capacite = 0.0;
+	}
+
+	int nb_s = reseau->nb_sommet;
+	int* dfn = calloc(nb_s, sizeof(int));
+	int* low = calloc(nb_s, sizeof(int));
+	struct sommet** parent = malloc(nb_s * sizeof(struct sommet*));
+	struct sommet** preorder = malloc(nb_s * sizeof(struct sommet*));
+	
+	marque_zero_sommets(reseau);
+	int dfs_time = 0;
+	
+	struct sommet* s = reseau->sommet_source;
+	struct sommet* t = reseau->sommet_destination;
+	int s_idx = s - reseau->sommets;
+	int t_idx = t - reseau->sommets;
+	
+	// Traiter t comme racine du DFS pour st-numbering
+	t->marque = 1;
+	dfn[t_idx] = 0;
+	low[t_idx] = 0;
+	preorder[0] = t;
+	parent[t_idx] = NULL;
+	dfs_time++;
+	
+	s->marque = 1;
+	dfn[s_idx] = 1;
+	low[s_idx] = 0; // arc retour vers t
+	preorder[1] = s;
+	parent[s_idx] = t;
+	dfs_time++;
+	
+	// Démarrer depuis s (ses voisins réels)
+	if (s->degree > 0) {
+		int* s_indices = malloc(s->degree * sizeof(int));
+		generer_ordre(s, s_indices, s->degree);
+		for (int k = 0; k < s->degree; k++) {
+			int idx = s_indices[k];
+			struct sommet* v = s->arcs[idx].arc_sortant->destination;
+			if (!v->marque) {
+				dfs_bipolar_generic(reseau, v, s, dfn, low, parent, preorder, &dfs_time, generer_ordre);
+			}
+		}
+		free(s_indices);
+	}
+	
+	// Évaluation des signes pour Even-Tarjan
+	int* sign = calloc(nb_s, sizeof(int));
+	sign[t_idx] = -1;
+	sign[s_idx] = -1;
+	
+	for (int i = 2; i < dfs_time; i++) {
+		struct sommet* v = preorder[i];
+		int v_idx = v - reseau->sommets;
+		
+		int low_val = low[v_idx];
+		struct sommet* low_vertex = preorder[low_val];
+		int low_vertex_idx = low_vertex - reseau->sommets;
+		
+		if (low_val == dfn[v_idx]) {
+			sign[v_idx] = 1; // Composante isolée (impasses), ajoutée à la suite
+		} else {
+			sign[v_idx] = -sign[low_vertex_idx];
+		}
+	}
+	
+	// Construction de la liste doublement chaînée virtuelle
+	struct sommet** next_node = calloc(nb_s, sizeof(struct sommet*));
+	struct sommet** prev_node = calloc(nb_s, sizeof(struct sommet*));
+	
+	next_node[s_idx] = t;
+	prev_node[t_idx] = s;
+	
+	for (int i = 2; i < dfs_time; i++) {
+		struct sommet* v = preorder[i];
+		int v_idx = v - reseau->sommets;
+		struct sommet* p = parent[v_idx];
+		int p_idx = p - reseau->sommets;
+		
+		if (sign[v_idx] == -1) { // Insérer avant p
+			struct sommet* before_p = prev_node[p_idx];
+			prev_node[v_idx] = before_p;
+			next_node[v_idx] = p;
+			prev_node[p_idx] = v;
+			if (before_p != NULL) next_node[before_p - reseau->sommets] = v;
+		} else { // Insérer après p
+			struct sommet* after_p = next_node[p_idx];
+			next_node[v_idx] = after_p;
+			prev_node[v_idx] = p;
+			next_node[p_idx] = v;
+			if (after_p != NULL) prev_node[after_p - reseau->sommets] = v;
+		}
+	}
+	
+	// Attribution des st_number
+	int* st_number = calloc(nb_s, sizeof(int));
+	int current_st = 1;
+	struct sommet* curr = s;
+	while (curr != NULL) {
+		st_number[curr - reseau->sommets] = current_st++;
+		curr = next_node[curr - reseau->sommets];
+	}
+	
+	// Orientation finale
+	for (int i = 0; i < reseau->nb_arcs; i += 2) {
+		struct arc* arc_aller = &reseau->arcs[i];
+		struct arc* arc_retour = &reseau->arcs[i + 1];
+		
+		int src_idx = arc_aller->source - reseau->sommets;
+		int dest_idx = arc_aller->destination - reseau->sommets;
+		
+		if (arc_aller->source->type == SOURCE || arc_aller->destination->type == DESTINATION ||
+			arc_aller->source->type == DESTINATION || arc_aller->destination->type == SOURCE) {
+			continue;
+		}
+		
+		if (st_number[src_idx] == 0 || st_number[dest_idx] == 0) {
+			// Sommets non atteints par le DFS (déconnectés), orientés par élévation
+			if (arc_aller->source->elevation >= arc_aller->destination->elevation) {
+				arc_retour->capacite = 0.0;
+			} else {
+				arc_aller->capacite = 0.0;
+			}
+		} else {
+			// Orientation st-numbering
+			if (st_number[src_idx] < st_number[dest_idx]) {
+				arc_retour->capacite = 0.0;
+			} else {
+				arc_aller->capacite = 0.0;
+			}
+		}
+	}
+	
+	free(dfn); free(low); free(parent); free(preorder);
+	free(sign); free(next_node); free(prev_node); free(st_number);
+
+	delete_source_destination(reseau);
+	fermeture_arc_ferme(reseau);
+}
+
+void orienter_elevation_descendante(struct graph* reseau) {
+	if (reseau == NULL || reseau->sommets == NULL) return;
+	for (int i = 0; i < reseau->nb_arcs; i += 2) {
+		struct arc* arc_aller = &reseau->arcs[i];
+		struct arc* arc_retour = &reseau->arcs[i + 1];
+
+		if (arc_aller->source->type == SOURCE || arc_aller->destination->type == DESTINATION ||
+			arc_aller->source->type == DESTINATION || arc_aller->destination->type == SOURCE) {
+			continue; // Leave source/dest arcs open initially or as is
+		}
+
+		flotant elev_src = arc_aller->source->elevation;
+		flotant elev_dst = arc_aller->destination->elevation;
+
+		if (elev_src >= elev_dst) {
+			arc_retour->capacite = 0.0;
+		} else {
+			arc_aller->capacite = 0.0;
+		}
+	}
+	fermeture_arc_ferme(reseau);
+}
+
+void orienter_elevation_dfs(struct graph* reseau) {
+	orienter_st_numbering_generic(reseau, generer_ordre_elevation);
+}
+
+void orienter_aleatoire_dfs(struct graph* reseau) {
+	orienter_st_numbering_generic(reseau, generer_ordre_aleatoire);
+}
+
+void orienter_dag_aleatoire(struct graph* reseau) {
+	if (reseau == NULL || reseau->sommets == NULL) return;
+	
+	int nb_s = reseau->nb_sommet;
+	int* rank = malloc(nb_s * sizeof(int));
+	for (int i = 0; i < nb_s; i++) {
+		rank[i] = i;
+	}
+	for (int i = nb_s - 1; i > 0; i--) {
+		int j = rand() % (i + 1);
+		int temp = rank[i];
+		rank[i] = rank[j];
+		rank[j] = temp;
+	}
+	
+	for (int i = 0; i < reseau->nb_arcs; i += 2) {
+		struct arc* arc_aller = &reseau->arcs[i];
+		struct arc* arc_retour = &reseau->arcs[i + 1];
+		
+		if (arc_aller->source->type == SOURCE || arc_aller->destination->type == DESTINATION ||
+			arc_aller->source->type == DESTINATION || arc_aller->destination->type == SOURCE) {
+			continue;
+		}
+		
+		int src_idx = arc_aller->source - reseau->sommets;
+		int dest_idx = arc_aller->destination - reseau->sommets;
+		
+		if (rank[src_idx] < rank[dest_idx]) {
+			arc_retour->capacite = 0.0;
+		} else {
+			arc_aller->capacite = 0.0;
+		}
+	}
+	free(rank);
+	fermeture_arc_ferme(reseau);
+}
+
+void orienter_completement_aleatoire(struct graph* reseau) {
+	if (reseau == NULL || reseau->sommets == NULL) return;
+	
+	for (int i = 0; i < reseau->nb_arcs; i += 2) {
+		struct arc* arc_aller = &reseau->arcs[i];
+		struct arc* arc_retour = &reseau->arcs[i + 1];
+		
+		if (arc_aller->source->type == SOURCE || arc_aller->destination->type == DESTINATION ||
+			arc_aller->source->type == DESTINATION || arc_aller->destination->type == SOURCE) {
+			continue;
+		}
+		
+		if (rand() % 2 == 0) {
+			arc_retour->capacite = 0.0;
+		} else {
+			arc_aller->capacite = 0.0;
+		}
+	}
+	fermeture_arc_ferme(reseau);
+}

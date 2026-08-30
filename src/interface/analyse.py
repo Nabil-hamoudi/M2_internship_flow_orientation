@@ -35,6 +35,12 @@ class AnalysisWindow(tk.Frame):
         os.makedirs(self.prep_dir, exist_ok=True)
 
         self.keys_map = {
+            "Cible (Nom)": "target_name",
+            "Fichier": "filename",
+            "Algorithme": "target_algo",
+            "Orientation": "target_ori",
+            "Capacité": "target_capa",
+            "Demande": "target_dem",
             "Réf - Mult. Source": "ref_m_src",
             "Réf - Mult. Dest. (EPA)": "ref_m_epa",
             "Réf - Mult. Dest. (Algo)": "ref_m_dst",
@@ -777,7 +783,13 @@ class AnalysisWindow(tk.Frame):
         x_labels = []
         
         if plot_type in ("Histogramme/Barres", "Boîte à moustaches"):
-            if custom_mode == "intervals":
+            if len(filtered_results) > 0 and isinstance(filtered_results[0][x_k], str):
+                unique_vals = sorted(list(set([r[x_k] for r in filtered_results])))
+                for val in unique_vals:
+                    x_labels.append(str(val))
+                    subset = [r for r in filtered_results if r[x_k] == val]
+                    subsets.append(subset)
+            elif custom_mode == "intervals":
                 for min_v, max_v, inc_min, inc_max, label in parsed_intervals:
                     x_labels.append(label)
                     subset = [r for r in filtered_results if ((r[x_k] >= min_v) if inc_min else (r[x_k] > min_v)) and ((r[x_k] <= max_v) if inc_max else (r[x_k] < max_v))]
@@ -828,17 +840,54 @@ class AnalysisWindow(tk.Frame):
             boxplot_data = [[r[y_k] for r in s] for s in subsets]
             x_pos = np.arange(1, len(x_labels) + 1)
             
-            bp = self.ax.boxplot(boxplot_data, positions=x_pos, patch_artist=True, showmeans=True)
-            for box in bp['boxes']:
-                box.set(facecolor='#9b59b6', alpha=0.7)
-            for median in bp['medians']:
-                median.set(color='black', linewidth=2)
+            bp = self.ax.boxplot(boxplot_data, positions=x_pos, patch_artist=True, showmeans=True,
+                                 boxprops=dict(facecolor='#9b59b6', alpha=0.7),
+                                 capprops=dict(color='#2c3e50', linewidth=1.5),
+                                 whiskerprops=dict(color='#2c3e50', linewidth=1.5),
+                                 flierprops=dict(marker='o', markerfacecolor='#e74c3c', markersize=5, alpha=0.6, markeredgecolor='none'),
+                                 medianprops=dict(color='black', linewidth=2),
+                                 meanprops=dict(marker='^', markerfacecolor='white', markeredgecolor='black', markersize=7))
+            
+            new_x_labels = []
+            new_x_labels = []
+            for i in range(len(boxplot_data)):
+                data_i = boxplot_data[i]
+                if len(data_i) > 0:
+                    y_min = np.min(data_i)
+                    y_max = np.max(data_i)
+                    y_q1 = np.percentile(data_i, 25)
+                    y_median = np.median(data_i)
+                    y_q3 = np.percentile(data_i, 75)
+                    y_mean = np.mean(data_i)
+                    
+                    lbl = (f"{x_labels[i]}\n"
+                           f"Min: {y_min:.2f} | Max: {y_max:.2f}\n"
+                           f"Q1: {y_q1:.2f} | Q3: {y_q3:.2f}\n"
+                           f"Med: {y_median:.2f} | Moy: {y_mean:.2f}")
+                    new_x_labels.append(lbl)
+                else:
+                    new_x_labels.append(x_labels[i])
                 
             self.ax.set_xticks(x_pos)
-            self.ax.set_xticklabels(x_labels, rotation=45, ha='right', fontsize=9)
+            self.ax.set_xticklabels(new_x_labels, rotation=0, ha='center', fontsize=9)
             self.ax.set_ylabel(y_sel, fontweight='bold')
+            self.ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+            import matplotlib.patches as mpatches
+            import matplotlib.lines as mlines
+            legend_elements = [
+                mpatches.Patch(facecolor='#9b59b6', alpha=0.7, label='Boîte (Q1 - Q3)'),
+                mlines.Line2D([0], [0], color='black', lw=2, label='Médiane'),
+                mlines.Line2D([0], [0], marker='^', color='w', markerfacecolor='white', markeredgecolor='black', markersize=7, label='Moyenne'),
+                mlines.Line2D([0], [0], marker='o', color='w', markerfacecolor='#e74c3c', markersize=6, label='Valeurs aberrantes')
+            ]
+            self.ax.legend(handles=legend_elements, loc='best', fontsize=9)
 
         elif plot_type == "Carte de chaleur (2D)":
+            if len(all_x_data) > 0 and (isinstance(all_x_data[0], str) or isinstance(all_y_data[0], str)):
+                messagebox.showwarning("Incompatible", "La carte de chaleur ne supporte pas les axes catégoriels (textes).")
+                return
+
             c_selection = self.c_var.get()
             c_k = self.keys_map.get(c_selection) if c_selection not in ["Cibles", "Fichiers", "Aucune"] else None
 

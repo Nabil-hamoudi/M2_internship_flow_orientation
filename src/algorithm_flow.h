@@ -48,3 +48,13 @@ flotant compute_min_cut(struct graph* reseau);
 void orienter_st_harmonique(struct graph* reseau);
 
 void annuler_circuits_flot(struct graph* reseau);
+
+void orienter_elevation_dfs(struct graph* reseau);
+
+void orienter_elevation_descendante(struct graph* reseau);
+
+void orienter_aleatoire_dfs(struct graph* reseau);
+
+void orienter_dag_aleatoire(struct graph* reseau);
+
+void orienter_completement_aleatoire(struct graph* reseau);
