@@ -82,8 +82,9 @@ def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src,
     reseau = None
 
     demandes_epanet = [d for d in DEMANDES if d == "EPANET"]
-    
-    if choix_dem == "Normale":
+    if choix_dem == "Uniforme":
+        ffi_wrapper.randomise_demande(projet)
+    elif choix_dem == "Normale":
         ffi_wrapper.randomise_demande_normale(projet, ecart_type)
     elif choix_dem == "Exponentielle":
         ffi_wrapper.randomise_demande_exponentielle(projet, ecart_type)

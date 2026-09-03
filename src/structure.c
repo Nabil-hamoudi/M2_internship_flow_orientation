@@ -100,6 +100,10 @@ struct sommet assignation_sommet(enum type_sommet type_s, nbr degree, nbr degree
 
 /*
 * Assigne et initialise en memoire le type arcs correspondant a un arc du reseau
+*
+* La source et la destination ne sont plus inversees selon le signe du flux.
+* Le sens est porte par la paire aller / retour, c'est a l'appelant de router
+* une valeur negative vers l'arc oppose.
 */
 struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant longueur, flotant roughness, flotant capacite, flotant flow, struct sommet *source, struct sommet *destination, int ouvert) {
 	struct arc A;
@@ -109,10 +113,7 @@ struct arc assignation_arc(enum type_arcs type_a, flotant diametre, flotant long
 	A.roughness = roughness;
 	A.capacite = capacite;
 	if (flow < 0.0) {
-		struct sommet* sourcetemp = source;
-		source = destination;
-		destination = sourcetemp;
-		flow = flow * -1;
+		flow = 0.0;
 	}
 	A.flow = flow;
 	A.marque = 0;

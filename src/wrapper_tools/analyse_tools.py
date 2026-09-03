@@ -117,7 +117,7 @@ def extraire_arcs_nulles(p_reseau):
         flow_aller = p_reseau.arcs[idx_aller].flow
         flow_retour = p_reseau.arcs[idx_retour].flow
 
-        if flow_aller == 0.0 and flow_retour == 0.0:
+        if flow_aller == flow_retour:
             active_set[set_size] = idx_aller
             set_size += 1
             active_set[set_size] = idx_retour

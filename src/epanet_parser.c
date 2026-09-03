@@ -540,8 +540,13 @@ struct graph chargement_graph(EN_Project* ph) {
 		} else {
 			ouvert = 0;
 		}
-		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, roughness, 0.0, flow, &G.sommets[noeud1-1], &G.sommets[noeud2-1], ouvert);
+		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, roughness, 0.0, 0.0, &G.sommets[noeud1-1], &G.sommets[noeud2-1], ouvert);
 		G.arcs[i+1] = assignation_arc_oppose(&G.arcs[i]);
+		if (flow >= 0.0) {
+			G.arcs[i].flow = flow;
+		} else {
+			G.arcs[i+1].flow = -flow;
+		}
 		G.sommets[noeud1-1].arcs[degrees[noeud1-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud1-1]);
 		G.sommets[noeud2-1].arcs[degrees[noeud2-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud2-1]);
 		degrees[noeud1-1] += 1;
