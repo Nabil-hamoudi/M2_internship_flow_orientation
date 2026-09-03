@@ -238,7 +238,9 @@ void fermeture_free_project(EN_Project* ph) {
 void nullifier_demande(struct graph* reseau) {
 	nbr nb_nodes = reseau->nb_sommet;
 	for (nbr i = 0; i < nb_nodes; i++) {
-		reseau->sommets[i].demande = 0.0;
+        if (reseau->sommets[i].type != TANK) {
+            reseau->sommets[i].demande = 0.0;
+		}
 	}
 }
 
@@ -256,7 +258,7 @@ void get_epanet_fulldemande(EN_Project* ph, struct graph* reseau) {
 	for (nbr i = 1; i <= nb_nodes; i++) {
 		int num_demands = 0;
 		EN_getnumdemands(*ph, i, &num_demands);
-		
+
 		demande = 0.0;
 		for (int cat = 1; cat <= num_demands; cat++) {
 			double base_demand = 0.0;
@@ -538,8 +540,13 @@ struct graph chargement_graph(EN_Project* ph) {
 		} else {
 			ouvert = 0;
 		}
-		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, roughness, 0.0, flow, &G.sommets[noeud1-1], &G.sommets[noeud2-1], ouvert);
+		G.arcs[i] = assignation_arc(type_epa, diametre, longueur, roughness, 0.0, 0.0, &G.sommets[noeud1-1], &G.sommets[noeud2-1], ouvert);
 		G.arcs[i+1] = assignation_arc_oppose(&G.arcs[i]);
+		if (flow >= 0.0) {
+			G.arcs[i].flow = flow;
+		} else {
+			G.arcs[i+1].flow = -flow;
+		}
 		G.sommets[noeud1-1].arcs[degrees[noeud1-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud1-1]);
 		G.sommets[noeud2-1].arcs[degrees[noeud2-1]] = assignation_arc_symmetrique(&G.arcs[i], &G.arcs[i+1], &G.sommets[noeud2-1]);
 		degrees[noeud1-1] += 1;

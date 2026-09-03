@@ -54,6 +54,14 @@ def get_arc_source_type(p_reseau, index):
 def get_arc_dest_type(p_reseau, index):
     return get_graph_pointer(p_reseau).arcs[index].destination.type
 
+def get_arc_source_elevation(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].source
+    return s.elevation
+
+def get_arc_dest_elevation(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].destination
+    return s.elevation
+
 def get_arc_source_position(p_reseau, index):
     s = get_graph_pointer(p_reseau).arcs[index].source
     return s.position.x, s.position.y
@@ -109,7 +117,7 @@ def extraire_arcs_nulles(p_reseau):
         flow_aller = p_reseau.arcs[idx_aller].flow
         flow_retour = p_reseau.arcs[idx_retour].flow
 
-        if flow_aller == 0.0 and flow_retour == 0.0:
+        if flow_aller == flow_retour:
             active_set[set_size] = idx_aller
             set_size += 1
             active_set[set_size] = idx_retour
@@ -183,7 +191,7 @@ def get_n_arcs_non_nul(p_reseau):
 
 def get_n_arcs_nulles(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
-    return extraire_arcs_nulles(p_reseau).shape[0]
+    return extraire_arcs_nulles(p_reseau).shape[0] / 2
 
 
 def get_arcs_symmetrique(p_reseau):
@@ -295,3 +303,87 @@ def get_intersection_arcs_dominants(graph_ref, graph_sim):
     active_ref = extraire_arcs_orientes_dominants(graph_ref)
     active_sim = extraire_arcs_orientes_dominants(graph_sim)
     return np.intersect1d(active_ref, active_sim)
+
+def get_pressure_diff_stats(p_reseau):
+    """
+    Parcourt l'ensemble des tuyaux pour calculer la proportion de différence de pression
+    entre la source et la destination (dP = P_src - P_dst).
+    Retourne les pourcentages : (Positif ou Zéro, Négatif)
+    """
+    p_reseau = get_graph_pointer(p_reseau)
+    nb_tuyaux = p_reseau.nb_arcs // 2
+    
+    pos_zero = 0
+    neg = 0
+    
+    if nb_tuyaux == 0:
+        return 0.0, 0.0
+        
+    idx_aller = 0
+    for k in range(nb_tuyaux):
+        src = p_reseau.arcs[idx_aller].source
+        dst = p_reseau.arcs[idx_aller].destination
+        
+        dp = src.pression - dst.pression
+        
+        # dP >= 0 (Positif ou Zéro)
+        if dp >= 0.0:
+            pos_zero += 1
+        # dP < 0 (Négatif)
+        else:
+            neg += 1
+            
+        idx_aller += 2
+            
+    return (pos_zero / nb_tuyaux) * 100.0, (neg / nb_tuyaux) * 100.0
+
+
+def get_wape_pression(graph_ref, graph_sim):
+    """Calcule l'Erreur Absolue Pondérée (WAPE) pour la pression des sommets."""
+    gref = get_graph_pointer(graph_ref)
+    gsim = get_graph_pointer(graph_sim)
+
+    if get_n_sommet(gref) != get_n_sommet(gsim):
+        return -1.0
+
+    somme_erreurs = 0.0
+    somme_pression_ref = 0.0
+    n = get_n_sommet(gsim)
+
+    for i in range(n):
+        p1 = gref.sommets[i].pression
+        p2 = gsim.sommets[i].pression
+        
+        somme_erreurs += np.absolute(p1 - p2)
+        somme_pression_ref += np.absolute(p1)
+
+    if somme_pression_ref == 0.0:
+        return 0.0 
+
+    return somme_erreurs / somme_pression_ref
+
+def get_wp_pression(graph_ref, graph_sim):
+    gref = get_graph_pointer(graph_ref)
+    gsim = get_graph_pointer(graph_sim)
+
+    if get_n_sommet(gref) != get_n_sommet(gsim):
+        return -1.0
+
+    somme_erreurs = 0.0
+    somme_pression_ref = 0.0
+    n = get_n_sommet(gsim)
+
+    for i in range(n):
+        p1 = gref.sommets[i].pression
+        p2 = gsim.sommets[i].pression
+        
+        somme_erreurs += (p1 - p2)
+        somme_pression_ref += np.absolute(p1)
+
+    if somme_pression_ref == 0.0:
+        return 0.0 
+
+    return somme_erreurs / somme_pression_ref
+
+def compute_min_cut(p_reseau):
+    return lib.compute_min_cut(get_graph_pointer(p_reseau))

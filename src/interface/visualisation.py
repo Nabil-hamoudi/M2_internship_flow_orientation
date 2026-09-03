@@ -445,10 +445,12 @@ class InternalWindow(tk.Frame):
         if mode_couleur == "Flow (Débit)": edge_vals = [e['flow'] for e in self.edges]
         elif mode_couleur == "Vitesse": edge_vals = [e['velocity'] for e in self.edges]
         elif mode_couleur == "Roughness (Rugosité)": edge_vals = [e['roughness'] for e in self.edges]
+        elif mode_couleur == "Différence d'Élévation": edge_vals = [e['diff_elevation'] for e in self.edges] # Ajout
 
         boundaries_arc = [0.0, 0.25, 0.5, 0.75, 1.0]
         if edge_vals:
             max_val = max(edge_vals)
+            min_val = min(edge_vals)
             classif = getattr(self, 'classif_arc', 'Equal Intervals')
             
             if classif == "Personnalisé":
@@ -458,9 +460,9 @@ class InternalWindow(tk.Frame):
                 if len(non_zeros) >= 2:
                     boundaries_arc = list(np.quantile(non_zeros, [0, 0.25, 0.5, 0.75, 1.0]))
                 else:
-                    boundaries_arc = [max_val * (i/4.0) for i in range(5)]
+                    boundaries_arc = [min_val + (max_val - min_val) * (i/4.0) for i in range(5)]
             else:
-                boundaries_arc = [max_val * (i/4.0) for i in range(5)]
+                boundaries_arc = [min_val + (max_val - min_val) * (i/4.0) for i in range(5)]
 
         mode_couleur_node = self.color_node_var.get()
         node_vals = []
@@ -496,6 +498,7 @@ class InternalWindow(tk.Frame):
             if mode_couleur == "Flow (Débit)": val_color = e['flow']
             elif mode_couleur == "Vitesse": val_color = e['velocity']
             elif mode_couleur == "Roughness (Rugosité)": val_color = e['roughness']
+            elif mode_couleur == "Différence d'Élévation": val_color = e['diff_elevation']
 
             width_line = 3
             if mode_couleur == "Aucune":
@@ -595,7 +598,7 @@ class InternalWindow(tk.Frame):
             current_y = y_offset + grad_height + 20
 
         if mode_couleur_edge != "Aucune":
-            unit = "(L/min)" if mode_couleur_edge == "Flow (Débit)" else ("" if mode_couleur_edge == "Roughness (Rugosité)" else "(m/s)")
+            unit = "(L/min)" if mode_couleur_edge == "Flow (Débit)" else ("(m)" if mode_couleur_edge == "Différence d'Élévation" else ("" if mode_couleur_edge == "Roughness (Rugosité)" else "(m/s)"))
             label_text = f"Arcs:\n{mode_couleur_edge.split(' (')[0]}\n{unit}"
             tk.Label(self.legend_frame, text=label_text, bg="white", fg="black", font=("Segoe UI", 8, "bold")).place(x=center_x, y=current_y, anchor="n")
             

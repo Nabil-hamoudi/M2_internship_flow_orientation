@@ -32,3 +32,29 @@ void nullifier_flow(struct graph* reseau);
 void compute_flow_ford_fukerson(struct graph* reseau);
 
 void compute_flow_edmonds_karp(struct graph* reseau);
+
+void compute_flow_elevation_prioritaire_ff(struct graph* reseau);
+
+void compute_flow_edmonds_karp_elevation(struct graph* reseau);
+
+void compute_pression_statique(struct graph* reseau, int mode);
+
+void orienter_arcs_par_pression(struct graph* reseau);
+
+void tester_orientation_flow(struct graph* reseau);
+
+flotant compute_min_cut(struct graph* reseau);
+
+void orienter_st_harmonique(struct graph* reseau);
+
+void annuler_circuits_flot(struct graph* reseau);
+
+void orienter_elevation_dfs(struct graph* reseau);
+
+void orienter_elevation_descendante(struct graph* reseau);
+
+void orienter_aleatoire_dfs(struct graph* reseau);
+
+void orienter_dag_aleatoire(struct graph* reseau);
+
+void orienter_completement_aleatoire(struct graph* reseau);

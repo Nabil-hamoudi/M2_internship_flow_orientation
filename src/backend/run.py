@@ -21,6 +21,38 @@ def compute_algo(reseau, choix, m_src, m_dst):
         ffi_wrapper.nullifier_flow(reseau)
         ffi_wrapper.compute_flow_edmonds_karp(reseau)
         ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Ford-Fulkerson_elevation":
+        ffi_wrapper.ajout_source_destination(reseau)
+        ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+        ffi_wrapper.ajout_capacite_source(reseau, m_src)
+        ffi_wrapper.nullifier_flow(reseau)
+        ffi_wrapper.compute_flow_elevation_prioritaire_ff(reseau)
+        ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Edmonds-Karp_elevation":
+        ffi_wrapper.ajout_source_destination(reseau)
+        ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+        ffi_wrapper.ajout_capacite_source(reseau, m_src)
+        ffi_wrapper.nullifier_flow(reseau)
+        ffi_wrapper.compute_flow_edmonds_karp_elevation(reseau)
+        ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Ford-Fulkerson_annulation":
+        ffi_wrapper.ajout_source_destination(reseau)
+        ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+        ffi_wrapper.ajout_capacite_source(reseau, m_src)
+        ffi_wrapper.nullifier_flow(reseau)
+        ffi_wrapper.compute_flow_ford_fukerson(reseau)
+        ffi_wrapper.annuler_circuits_flot(reseau)
+        ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Ford-Fulkerson_elevation_annulation":
+        ffi_wrapper.ajout_source_destination(reseau)
+        ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
+        ffi_wrapper.ajout_capacite_source(reseau, m_src)
+        ffi_wrapper.nullifier_flow(reseau)
+        ffi_wrapper.compute_flow_elevation_prioritaire_ff(reseau)
+        ffi_wrapper.annuler_circuits_flot(reseau)
+        ffi_wrapper.delete_source_destination(reseau)
+    elif choix == "Test Orientation":
+        ffi_wrapper.tester_orientation_flow(reseau)
 
 def compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
     if choix_ori == "EPANET":
@@ -29,23 +61,36 @@ def compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
     elif choix_ori == "EPANET Partiel":
         ffi_wrapper.reget_epanet_flow(projet, reseau)
         ffi_wrapper.fix_capacite_flow_oriente_portion(reseau, portion)
-    elif choix_ori != "Aucune":
-        compute_algo(reseau, choix_ori, p_src, p_dem)
-        ffi_wrapper.fix_capacite_flow_oriente(reseau)
+    elif choix_ori == "Pression Statique":
+        ffi_wrapper.compute_pression_statique(reseau, 0)
+        ffi_wrapper.orienter_arcs_par_pression(reseau)
+    elif choix_ori == "Orientation Laplace":
+        ffi_wrapper.orienter_st_harmonique(reseau)
+    elif choix_ori == "Orientation s-t elevation":
+        ffi_wrapper.orienter_elevation_dfs(reseau)
+    elif choix_ori == "Orientation Elevation Descendante":
+        ffi_wrapper.orienter_elevation_descendante(reseau)
+    elif choix_ori == "Orientation s-t aleatoire":
+        ffi_wrapper.orienter_aleatoire_dfs(reseau)
+    elif choix_ori == "Orientation DAG aleatoire":
+        ffi_wrapper.orienter_dag_aleatoire(reseau)
+    elif choix_ori == "Orientation completement aleatoire":
+        ffi_wrapper.orienter_completement_aleatoire(reseau)
 
 def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa=1.0, portion=1.0, ecart_type=0.3):
     ffi_wrapper.modif_multiplicateur(projet, max(mult_epa, 1e-6))
     reseau = None
-    
-    demandes_epanet = [d for d in DEMANDES if d != "Uniforme"]
-    
-    if choix_dem == "Normale":
+
+    demandes_epanet = [d for d in DEMANDES if d == "EPANET"]
+    if choix_dem == "Uniforme":
+        ffi_wrapper.randomise_demande(projet)
+    elif choix_dem == "Normale":
         ffi_wrapper.randomise_demande_normale(projet, ecart_type)
     elif choix_dem == "Exponentielle":
         ffi_wrapper.randomise_demande_exponentielle(projet, ecart_type)
     elif choix_dem == "Toutes à 1":
         ffi_wrapper.set_demande_un(projet)
-        
+
     if choix_algo == "EPANET":
         ffi_wrapper.compute_epanet(projet)
         reseau = ffi_wrapper.import_epanet_graph(projet)
@@ -124,8 +169,7 @@ def run_analysis_worker(task_args):
     try:
         projet = ffi_wrapper.create_epanet_project(filepath)
 
-        if seed_val is not None:
-            ffi_wrapper.set_random_seed(seed_val)
+        ffi_wrapper.set_random_seed(seed_val)
         
         if rand_type == "Uniforme":
             ffi_wrapper.randomise_demande(projet)

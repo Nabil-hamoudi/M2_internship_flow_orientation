@@ -3,12 +3,12 @@ import json
 from src.wrapper_tools import analyse_tools
 
 # --- CONSTANTES PARTAGÉES ---
-ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp")
-ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
+ALGORITHMES = ("EPANET", "Ford-Fulkerson", "Edmonds-Karp", "Ford-Fulkerson_elevation", "Edmonds-Karp_elevation", "Ford-Fulkerson_annulation", "Ford-Fulkerson_elevation_annulation", "Test Orientation")
+ORIENTATIONS = ("Aucune", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp", "Pression Statique", "Orientation Laplace", "Orientation s-t elevation", "Orientation Elevation Descendante", "Orientation s-t aleatoire", "Orientation DAG aleatoire", "Orientation completement aleatoire")
 CAPACITES = ("Vitesse Max", "EPANET", "EPANET Partiel", "Ford-Fulkerson", "Edmonds-Karp")
 DEMANDES = ("Inchanger", "Uniforme", "EPANET", "Normale", "Exponentielle", "Toutes à 1")
 COULEURS_SOMMET = ("Aucune", "Élévation", "Pression", "Demande", "Satisfaction")
-COULEURS_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)")
+COULEURS_ARC = ("Aucune", "Flow (Débit)", "Vitesse", "Roughness (Rugosité)", "Différence d'Élévation")
 
 FILETYPES_INP = [("EPANET", "*.inp *.INP")]
 FILETYPES_JSON = [("JSON Files", "*.json")]
@@ -55,8 +55,12 @@ def extract_data(reseau):
         x1, y1 = analyse_tools.get_arc_source_position(reseau, idx_aller)
         x2, y2 = analyse_tools.get_arc_dest_position(reseau, idx_aller)
 
+        diff_elevation = analyse_tools.get_arc_dest_elevation(reseau, idx_aller) - analyse_tools.get_arc_source_elevation(reseau, idx_aller)
+
         if idx_retour in arcs_actifs:
+            diff_elevation = diff_elevation * -1
             x1, y1, x2, y2 = x2, y2, x1, y1
+
 
         edges.append({
             'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 
@@ -69,7 +73,8 @@ def extract_data(reseau):
             'flow_aller': analyse_tools.get_arc_flow(reseau, idx_aller), 
             'cap_aller': analyse_tools.get_arc_capacite(reseau, idx_aller),
             'flow_retour': analyse_tools.get_arc_flow(reseau, idx_retour), 
-            'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour)
+            'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour),
+            'diff_elevation': diff_elevation
         })
         
     return nodes, edges, (min_x, max_x, min_y, max_y)
@@ -87,20 +92,39 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
                     r_src, r_epa, r_dst, r_v, r_p, r_ecart,
                     t_src, t_epa, t_dst, t_v, t_p, t_ecart):
     """Calcule les métriques comparatives entre le graphe de référence et le graphe cible."""
+    # 1. Calculs nécessitant l'état intact des flux et capacités
     wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
     wp = analyse_tools.get_wp_flow(graph_ref, graph_tgt) * 100
+    wape_p = analyse_tools.get_wape_pression(graph_ref, graph_tgt) * 100
+    wp_p = analyse_tools.get_wp_pression(graph_ref, graph_tgt) * 100
+    
     sat_ref = float(analyse_tools.get_efficacite(graph_ref)) * 100
     sat_tgt = float(analyse_tools.get_efficacite(graph_tgt)) * 100
     jaccard_d = analyse_tools.jaccard_distance(graph_ref, graph_tgt) * 100
     
     arcs_non_nul_ref = (analyse_tools.get_n_arcs_non_nul(graph_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref))) * 100
-    arcs_nul_ref = analyse_tools.extraire_arcs_nulles(graph_ref)
+    arcs_nul_ref = analyse_tools.get_n_arcs_nulles(graph_ref)
     arcs_non_nul_tgt = (analyse_tools.get_n_arcs_non_nul(graph_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt))) * 100
-    arcs_nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
+    arcs_nul_tgt = analyse_tools.get_n_arcs_nulles(graph_tgt)
+
+    dom_ref = analyse_tools.extraire_arcs_orientes_dominants(graph_ref)
+    dom_tgt = analyse_tools.extraire_arcs_orientes_dominants(graph_tgt)
+    nul_tgt = analyse_tools.extraire_arcs_nulles(graph_tgt)
+
+    nb_dom_ref = dom_ref.shape[0]
+    nb_inter_dom = np.intersect1d(dom_ref, dom_tgt).shape[0]
+    nb_mal_non_oriente = np.intersect1d(dom_ref, nul_tgt).shape[0]
+    nb_mal_oriente = nb_dom_ref - nb_inter_dom - nb_mal_non_oriente
+
+    nb_nodes = analyse_tools.get_n_sommet(graph_tgt)
+    nb_edges = analyse_tools.get_n_arcs_no(graph_tgt)
     
-    nb_dom_ref = analyse_tools.get_n_arcs_non_nul(graph_ref)
-    nb_inter_dom = analyse_tools.get_intersection_arcs_dominants(graph_ref, graph_tgt).shape[0]
-    nb_inter_nul = np.intersect1d(arcs_nul_ref, arcs_nul_tgt).shape[0]
+    ref_dp_pos_zero, ref_dp_neg = analyse_tools.get_pressure_diff_stats(graph_ref)
+    tgt_dp_pos_zero, tgt_dp_neg = analyse_tools.get_pressure_diff_stats(graph_tgt)
+
+    # 2. Calculs altérant l'état du graphe (À FAIRE EN DERNIER)
+    # Exécuté uniquement sur la cible car la topologie est identique à la référence.
+    min_cut_val = analyse_tools.compute_min_cut(graph_tgt)
 
     return {
         "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
@@ -110,12 +134,21 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
         "flags": flags,
         "ref_m_src": r_src, "ref_m_epa": r_epa, "ref_m_dst": r_dst, "ref_vitesse": r_v, "ref_portion": r_p, "ref_ecart_type": r_ecart,
         "tgt_m_src": t_src, "tgt_m_epa": t_epa, "tgt_m_dst": t_dst, "tgt_vitesse": t_v, "tgt_portion": t_p, "tgt_ecart_type": t_ecart,
-        "wape": wape, "wp": wp, "sat_ref": sat_ref, "sat_tgt": sat_tgt,
+        "wape": wape, "wp": wp, 
+        "wape_p": wape_p, "wp_p": wp_p,
+        "sat_ref": sat_ref, "sat_tgt": sat_tgt,
         "jaccard": jaccard_d,  
-        "arc_nul_ref": arcs_nul_ref.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
+        "arc_nul_ref": (arcs_nul_ref) / max(1, analyse_tools.get_n_arcs_no(graph_ref)) * 100,
         "arc_non_nul_ref" : arcs_non_nul_ref, 
-        "arc_nul_cible": arcs_nul_tgt.shape[0] / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
+        "arc_nul_cible": (arcs_nul_tgt) / max(1, analyse_tools.get_n_arcs_no(graph_tgt)) * 100,
         "arc_non_nul_cible": arcs_non_nul_tgt,
-        "ratio_nul_tgt_ref": ((nb_inter_nul / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0,
-        "ratio_inter_ref": ((nb_inter_dom / nb_dom_ref) * 100) if nb_dom_ref > 0 else 1.0
+        "ratio_nul_tgt_ref": ((nb_mal_non_oriente / nb_dom_ref) * 100) if nb_dom_ref > 0 else 0.0,
+        "ratio_inter_ref": ((nb_mal_oriente / nb_dom_ref) * 100) if nb_dom_ref > 0 else 0.0,
+        "nb_nodes": nb_nodes,
+        "nb_edges": nb_edges,
+        "ref_dp_pos_zero": ref_dp_pos_zero,
+        "ref_dp_neg": ref_dp_neg,
+        "tgt_dp_pos_zero": tgt_dp_pos_zero,
+        "tgt_dp_neg": tgt_dp_neg,
+        "min_cut": min_cut_val # <-- Ajout au dictionnaire final
     }

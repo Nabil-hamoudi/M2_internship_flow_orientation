@@ -35,6 +35,12 @@ class AnalysisWindow(tk.Frame):
         os.makedirs(self.prep_dir, exist_ok=True)
 
         self.keys_map = {
+            "Cible (Nom)": "target_name",
+            "Fichier": "filename",
+            "Algorithme": "target_algo",
+            "Orientation": "target_ori",
+            "Capacité": "target_capa",
+            "Demande": "target_dem",
             "Réf - Mult. Source": "ref_m_src",
             "Réf - Mult. Dest. (EPA)": "ref_m_epa",
             "Réf - Mult. Dest. (Algo)": "ref_m_dst",
@@ -49,15 +55,24 @@ class AnalysisWindow(tk.Frame):
             "Cible - Ecart Type": "tgt_ecart_type",
             "Satisfaisabilité Réf (%)": "sat_ref",
             "Satisfaisabilité Cible (%)": "sat_tgt",
-            "Erreur Absolue ponderee (WAPE %)": "wape",
-            "Erreur ponderee (%)": "wp",
+            "Erreur Absolue ponderee Flow (WAPE %)": "wape",
+            "Erreur ponderee Flow (%)": "wp",
+            "Erreur Absolue ponderee Pression (WAPE %)": "wape_p",
+            "Erreur ponderee Pression (%)": "wp_p",
             "Distance de Jaccard (%)": "jaccard",
             "Portion Arcs Flow Nul Réf (%)": "arc_nul_ref",
             "Portion Arcs Flow Non Nul Réf (%)": "arc_non_nul_ref",
             "Portion Arcs Flow Nul Cible (%)": "arc_nul_cible",
             "Portion Arcs Flow Non Nul Cible (%)": "arc_non_nul_cible",
             "Liens mal non orientés (%)": "ratio_nul_tgt_ref",
-            "Liens mal orientés (%)": "ratio_inter_ref"
+            "Liens mal orientés (%)": "ratio_inter_ref",
+            "Nombre de sommets": "nb_nodes",
+            "Nombre d'arêtes": "nb_edges",
+            "% Arcs dP >= 0 (Réf)": "ref_dp_pos_zero",
+            "% Arcs dP < 0 (Réf)": "ref_dp_neg",
+            "% Arcs dP >= 0 (Cible)": "tgt_dp_pos_zero",
+            "% Arcs dP < 0 (Cible)": "tgt_dp_neg",
+            "Valeur de la Coupe Min": "min_cut"
         }
 
         self.setup_ui()
@@ -261,19 +276,26 @@ class AnalysisWindow(tk.Frame):
 
         tk.Label(self.sidebar, text="Type :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.plot_type_var = tk.StringVar(value="Nuage de points")
-        self.cb_type = ttk.Combobox(self.sidebar, textvariable=self.plot_type_var, values=["Nuage de points", "Histogramme (1D)", "Carte de chaleur (2D)"], state="readonly")
+        self.cb_type = ttk.Combobox(self.sidebar, textvariable=self.plot_type_var, values=["Nuage de points", "Histogramme/Barres", "Boîte à moustaches", "Carte de chaleur (2D)"], state="readonly")
         self.cb_type.pack(fill=tk.X, pady=(0, 5))
         self.cb_type.bind("<<ComboboxSelected>>", self.update_plot)
         
         tk.Label(self.sidebar, text="Axe X :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.x_var = tk.StringVar(value="Cible - Mult. Dest. (EPA)")
         self.cb_x = ttk.Combobox(self.sidebar, textvariable=self.x_var, values=plot_opts, state="readonly")
-        self.cb_x.pack(fill=tk.X); self.cb_x.bind("<<ComboboxSelected>>", self.update_plot)
+        self.cb_x.pack(fill=tk.X, pady=(0, 5)); self.cb_x.bind("<<ComboboxSelected>>", self.update_plot)
 
-        tk.Label(self.sidebar, text="Axe Y :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(self.sidebar, text="Axe Y (Métriques) :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.y_var = tk.StringVar(value="Satisfaisabilité Cible (%)")
         self.cb_y = ttk.Combobox(self.sidebar, textvariable=self.y_var, values=plot_opts, state="readonly")
-        self.cb_y.pack(fill=tk.X); self.cb_y.bind("<<ComboboxSelected>>", self.update_plot)
+        self.cb_y.pack(fill=tk.X, pady=(0, 5))
+        self.cb_y.bind("<<ComboboxSelected>>", self.update_plot)
+
+        tk.Label(self.sidebar, text="Comptage (Histo.) :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
+        self.agg_var = tk.StringVar(value="Nombre d'instances")
+        self.cb_agg = ttk.Combobox(self.sidebar, textvariable=self.agg_var, values=["Nombre d'instances", "Nombre de fichiers"], state="readonly")
+        self.cb_agg.pack(fill=tk.X, pady=(0, 5))
+        self.cb_agg.bind("<<ComboboxSelected>>", self.update_plot)
 
         tk.Label(self.sidebar, text="Paramètre / Couleur :", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.c_var = tk.StringVar(value="Cibles")
@@ -282,11 +304,17 @@ class AnalysisWindow(tk.Frame):
 
         bins_f = tk.Frame(self.sidebar, bg="#ecf0f1")
         bins_f.pack(fill=tk.X, pady=5)
-        tk.Label(bins_f, text="Nb divisions (Barres/Grille):", bg="#ecf0f1", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        self.bins_var = tk.Entry(bins_f, width=5)
+        tk.Label(bins_f, text="Intervalles/Div X:", bg="#ecf0f1", font=("Segoe UI", 8)).grid(row=0, column=0, sticky="w")
+        self.bins_var = tk.Entry(bins_f, width=12)
         self.bins_var.insert(0, "15")
-        self.bins_var.pack(side=tk.RIGHT, padx=5)
+        self.bins_var.grid(row=0, column=1, padx=2, pady=2)
         self.bins_var.bind("<Return>", self.update_plot)
+        
+        tk.Label(bins_f, text="Y (Heatmap):", bg="#ecf0f1", font=("Segoe UI", 8)).grid(row=1, column=0, sticky="w")
+        self.bins_y_var = tk.Entry(bins_f, width=12)
+        self.bins_y_var.insert(0, "15")
+        self.bins_y_var.grid(row=1, column=1, padx=2, pady=2)
+        self.bins_y_var.bind("<Return>", self.update_plot)
 
         tk.Label(self.sidebar, text="Statistiques", bg="#ecf0f1", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
         
@@ -673,13 +701,21 @@ class AnalysisWindow(tk.Frame):
 
         plot_type = self.plot_type_var.get()
         
-        if plot_type == "Histogramme (1D)":
+        if plot_type == "Histogramme/Barres":
             self.cb_y.config(state="disabled")
+            self.cb_agg.config(state="readonly")
             self.cb_c.config(state="disabled")
             self.chk_mean_y.config(state="disabled")
             self.chk_median_y.config(state="disabled")
+        elif plot_type == "Boîte à moustaches":
+            self.cb_y.config(state="readonly")
+            self.cb_agg.config(state="disabled")
+            self.cb_c.config(state="disabled")
+            self.chk_mean_y.config(state="normal")
+            self.chk_median_y.config(state="normal")
         else:
             self.cb_y.config(state="readonly")
+            self.cb_agg.config(state="disabled")
             self.cb_c.config(state="readonly")
             self.chk_mean_y.config(state="normal")
             self.chk_median_y.config(state="normal")
@@ -692,15 +728,10 @@ class AnalysisWindow(tk.Frame):
             min_res, max_res = 0, 999999
 
         for r in self.results:
-            if r['filepath'] in self.file_vars and not self.file_vars[r['filepath']].get():
-                continue
-
+            if r['filepath'] in self.file_vars and not self.file_vars[r['filepath']].get(): continue
             flags = r['flags']
-            
             tgt_config = next((c for c in self.target_configs if c['uid'] == r['target_uid']), None)
-            if not tgt_config: continue
-            if not tgt_config['var'].get(): continue 
-            
+            if not tgt_config or not tgt_config['var'].get(): continue 
             if self.exclude_tanks.get() and flags.get("tanks", False): continue
             if self.exclude_pumps.get() and flags.get("pumps", False): continue
             if self.exclude_valves.get() and flags.get("valves", False): continue
@@ -716,14 +747,45 @@ class AnalysisWindow(tk.Frame):
             return
 
         x_k = self.keys_map[self.x_var.get()]
-        y_k = self.keys_map.get(self.y_var.get(), None)
-        plot_type = self.plot_type_var.get()
+        y_sel = self.y_var.get()
+        y_k = self.keys_map.get(y_sel, None)
 
         try:
-            nb_bins = int(self.bins_var.get())
-            if nb_bins <= 0: nb_bins = 15
-        except ValueError:
-            nb_bins = 15
+            def parse_bins(bin_str):
+                try:
+                    b_str = bin_str.strip()
+                    if ';' in b_str:
+                        intervals = []
+                        for part in b_str.split(';'):
+                            part = part.strip()
+                            if not part: continue
+                            inc_min = part.startswith('[')
+                            inc_max = part.endswith(']')
+                            inner = part[1:-1].split(',')
+                            min_v = float(inner[0].strip().replace('+inf', 'inf').replace('-inf', '-inf'))
+                            max_v = float(inner[1].strip().replace('+inf', 'inf').replace('-inf', '-inf'))
+                            intervals.append((min_v, max_v, inc_min, inc_max, part))
+                        return "intervals", intervals
+                    elif ',' in b_str:
+                        b_val = [float(x.strip()) for x in b_str.split(',') if x.strip()]
+                        if len(b_val) < 2: return "auto", 15
+                        return "edges", b_val
+                    else:
+                        return "auto", max(1, int(b_str))
+                except Exception:
+                    return "auto", 15
+
+            x_mode, x_bins = parse_bins(self.bins_var.get())
+            y_mode, y_bins = parse_bins(self.bins_y_var.get())
+            
+            custom_mode = x_mode
+            parsed_intervals = x_bins if x_mode == "intervals" else []
+            bins_val = x_bins if x_mode != "intervals" else 15
+        except Exception:
+            custom_mode = "auto"
+            bins_val = 15
+            x_mode, x_bins = "auto", 15
+            y_mode, y_bins = "auto", 15
 
         self.fig.clf()
         self.ax = self.fig.add_subplot(111)
@@ -732,73 +794,266 @@ class AnalysisWindow(tk.Frame):
         all_x_data = [r[x_k] for r in filtered_results]
         all_y_data = [r[y_k] for r in filtered_results] if y_k else []
 
-        if plot_type == "Histogramme (1D)":
-            self.ax.hist(all_x_data, bins=nb_bins, color='#3498db', edgecolor='black', alpha=0.8)
-            self.ax.set_ylabel("Nombre de réseaux (Fréquence)", fontweight='bold')
+        subsets = []
+        x_labels = []
+        
+        if plot_type in ("Histogramme/Barres", "Boîte à moustaches"):
+            if len(filtered_results) > 0 and isinstance(filtered_results[0][x_k], str):
+                unique_vals = sorted(list(set([r[x_k] for r in filtered_results])))
+                for val in unique_vals:
+                    x_labels.append(str(val))
+                    subset = [r for r in filtered_results if r[x_k] == val]
+                    subsets.append(subset)
+            elif custom_mode == "intervals":
+                for min_v, max_v, inc_min, inc_max, label in parsed_intervals:
+                    x_labels.append(label)
+                    subset = [r for r in filtered_results if ((r[x_k] >= min_v) if inc_min else (r[x_k] > min_v)) and ((r[x_k] <= max_v) if inc_max else (r[x_k] < max_v))]
+                    subsets.append(subset)
+            else:
+                if custom_mode == "auto":
+                    bin_edges = np.histogram_bin_edges([r[x_k] for r in filtered_results], bins=bins_val)
+                else:
+                    bin_edges = np.array(bins_val)
+                    
+                for i in range(len(bin_edges) - 1):
+                    b_min = bin_edges[i]
+                    b_max = bin_edges[i+1]
+                    if i == len(bin_edges) - 2:
+                        subset = [r for r in filtered_results if b_min <= r[x_k] <= b_max]
+                        label = f"[{b_min:.2f}, {b_max:.2f}]"
+                    else:
+                        subset = [r for r in filtered_results if b_min <= r[x_k] < b_max]
+                        label = f"[{b_min:.2f}, {b_max:.2f}["
+                    x_labels.append(label)
+                    subsets.append(subset)
+
+        if plot_type == "Histogramme/Barres":
+            agg_mode = self.agg_var.get()
+            if agg_mode == "Nombre de fichiers":
+                total_items = len(set(r['filename'] for r in filtered_results))
+                agg_vals = [len(set(r['filename'] for r in s)) for s in subsets]
+            else:
+                total_items = len(filtered_results)
+                agg_vals = [len(s) for s in subsets]
+                
+            x_pos = np.arange(len(x_labels))
+            bars = self.ax.bar(x_pos, agg_vals, color='#3498db', edgecolor='black', alpha=0.8)
+            self.ax.set_xticks(x_pos)
+            self.ax.set_xticklabels(x_labels, rotation=45, ha='right', fontsize=9)
+            
+            for bar, val in zip(bars, agg_vals):
+                if val > 0 and total_items > 0:
+                    pct = (val / total_items) * 100
+                    self.ax.text(bar.get_x() + bar.get_width()/2, val, f'{val}\n({pct:.1f}%)', ha='center', va='bottom', fontsize=8, fontweight='bold')
+                elif val == 0:
+                    self.ax.text(bar.get_x() + bar.get_width()/2, val, '0', ha='center', va='bottom', fontsize=8)
+                    
+            self.ax.set_ylabel(agg_mode, fontweight='bold')
+            self.ax.set_ylim(0, max(agg_vals) * 1.15 if agg_vals and max(agg_vals) > 0 else 1)
+
+        elif plot_type == "Boîte à moustaches":
+            boxplot_data = [[r[y_k] for r in s] for s in subsets]
+            x_pos = np.arange(1, len(x_labels) + 1)
+            
+            bp = self.ax.boxplot(boxplot_data, positions=x_pos, patch_artist=True, showmeans=True,
+                                 boxprops=dict(facecolor='#9b59b6', alpha=0.7),
+                                 capprops=dict(color='#2c3e50', linewidth=1.5),
+                                 whiskerprops=dict(color='#2c3e50', linewidth=1.5),
+                                 flierprops=dict(marker='o', markerfacecolor='#e74c3c', markersize=5, alpha=0.6, markeredgecolor='none'),
+                                 medianprops=dict(color='black', linewidth=2),
+                                 meanprops=dict(marker='^', markerfacecolor='white', markeredgecolor='black', markersize=7))
+            
+            new_x_labels = []
+            new_x_labels = []
+            for i in range(len(boxplot_data)):
+                data_i = boxplot_data[i]
+                if len(data_i) > 0:
+                    y_min = np.min(data_i)
+                    y_max = np.max(data_i)
+                    y_q1 = np.percentile(data_i, 25)
+                    y_median = np.median(data_i)
+                    y_q3 = np.percentile(data_i, 75)
+                    y_mean = np.mean(data_i)
+                    
+                    lbl = (f"{x_labels[i]}\n"
+                           f"Min: {y_min:.2f} | Max: {y_max:.2f}\n"
+                           f"Q1: {y_q1:.2f} | Q3: {y_q3:.2f}\n"
+                           f"Med: {y_median:.2f} | Moy: {y_mean:.2f}")
+                    new_x_labels.append(lbl)
+                else:
+                    new_x_labels.append(x_labels[i])
+                
+            self.ax.set_xticks(x_pos)
+            self.ax.set_xticklabels(new_x_labels, rotation=0, ha='center', fontsize=9)
+            self.ax.set_ylabel(y_sel, fontweight='bold')
+            self.ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+            import matplotlib.patches as mpatches
+            import matplotlib.lines as mlines
+            legend_elements = [
+                mpatches.Patch(facecolor='#9b59b6', alpha=0.7, label='Boîte (Q1 - Q3)'),
+                mlines.Line2D([0], [0], color='black', lw=2, label='Médiane'),
+                mlines.Line2D([0], [0], marker='^', color='w', markerfacecolor='white', markeredgecolor='black', markersize=7, label='Moyenne'),
+                mlines.Line2D([0], [0], marker='o', color='w', markerfacecolor='#e74c3c', markersize=6, label='Valeurs aberrantes')
+            ]
+            self.ax.legend(handles=legend_elements, loc='best', fontsize=9)
 
         elif plot_type == "Carte de chaleur (2D)":
             c_selection = self.c_var.get()
-            
-            if c_selection in ["Cibles", "Fichiers", "Aucune"]:
-                c_k = None
+            c_k = self.keys_map.get(c_selection) if c_selection not in ["Cibles", "Fichiers", "Aucune"] else None
+
+            def apply_intervals(data, mode, bins):
+                if mode == "intervals":
+                    cats = [lbl for _, _, _, _, lbl in bins]
+                    new_data = []
+                    for val in data:
+                        if isinstance(val, str):
+                            new_data.append(val)
+                            continue
+                        found = False
+                        for min_v, max_v, inc_min, inc_max, label in bins:
+                            if ((val >= min_v) if inc_min else (val > min_v)) and ((val <= max_v) if inc_max else (val < max_v)):
+                                new_data.append(label)
+                                found = True
+                                break
+                        if not found:
+                            new_data.append("Hors limites")
+                    if "Hors limites" in new_data:
+                        cats.append("Hors limites")
+                    return True, new_data, cats
+                return False, data, None
+
+            x_transformed, all_x_data, x_cat_ordered = apply_intervals(all_x_data, x_mode, x_bins)
+            y_transformed, all_y_data, y_cat_ordered = apply_intervals(all_y_data, y_mode, y_bins)
+
+            x_is_cat = len(all_x_data) > 0 and isinstance(all_x_data[0], str)
+            y_is_cat = len(all_y_data) > 0 and isinstance(all_y_data[0], str)
+
+            if x_is_cat:
+                x_categories = x_cat_ordered if x_transformed else sorted(list(set(all_x_data)))
+                x_cat_map = {v: i for i, v in enumerate(x_categories)}
             else:
-                c_k = self.keys_map.get(c_selection)
+                x_categories = None
 
-            H_count, xedges, yedges = np.histogram2d(all_x_data, all_y_data, bins=nb_bins)
-
-            if c_k:
-                c_data = [r[c_k] for r in filtered_results]
-                H_sum, _, _ = np.histogram2d(all_x_data, all_y_data, bins=nb_bins, weights=c_data)
-
-                with np.errstate(divide='ignore', invalid='ignore'):
-                    Z = np.true_divide(H_sum, H_count)
+            if y_is_cat:
+                y_categories = y_cat_ordered if y_transformed else sorted(list(set(all_y_data)))
+                y_cat_map = {v: i for i, v in enumerate(y_categories)}
             else:
-                Z = H_count
+                y_categories = None
 
-            Z[H_count == 0] = np.nan
+            if x_is_cat and y_is_cat:
+                nb_x, nb_y = len(x_categories), len(y_categories)
+                H_count = np.zeros((nb_x, nb_y))
+                H_sum = np.zeros((nb_x, nb_y))
+                for idx, r in enumerate(filtered_results):
+                    xi, yi = x_cat_map[all_x_data[idx]], y_cat_map[all_y_data[idx]]
+                    H_count[xi, yi] += 1
+                    if c_k and not isinstance(r[c_k], str):
+                        H_sum[xi, yi] += r[c_k]
+                if c_k:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
+            elif x_is_cat:
+                nb_x = len(x_categories)
+                yb = y_bins if y_mode == "edges" or isinstance(y_bins, int) else 15
+                y_edges = np.histogram_bin_edges(all_y_data, bins=yb)
+                nb_y = len(y_edges) - 1
+                H_count = np.zeros((nb_x, nb_y))
+                H_sum = np.zeros((nb_x, nb_y))
+                y_indices = np.clip(np.digitize(all_y_data, y_edges) - 1, 0, nb_y - 1)
+                for idx, r in enumerate(filtered_results):
+                    xi, yi = x_cat_map[all_x_data[idx]], y_indices[idx]
+                    H_count[xi, yi] += 1
+                    if c_k and not isinstance(r[c_k], str):
+                        H_sum[xi, yi] += r[c_k]
+                if c_k:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
+            elif y_is_cat:
+                nb_y = len(y_categories)
+                xb = x_bins if x_mode == "edges" or isinstance(x_bins, int) else 15
+                x_edges = np.histogram_bin_edges(all_x_data, bins=xb)
+                nb_x = len(x_edges) - 1
+                H_count = np.zeros((nb_x, nb_y))
+                H_sum = np.zeros((nb_x, nb_y))
+                x_indices = np.clip(np.digitize(all_x_data, x_edges) - 1, 0, nb_x - 1)
+                for idx, r in enumerate(filtered_results):
+                    xi, yi = x_indices[idx], y_cat_map[all_y_data[idx]]
+                    H_count[xi, yi] += 1
+                    if c_k and not isinstance(r[c_k], str):
+                        H_sum[xi, yi] += r[c_k]
+                if c_k:
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
+            else:
+                xb = x_bins if x_mode == "edges" or isinstance(x_bins, int) else 15
+                yb = y_bins if y_mode == "edges" or isinstance(y_bins, int) else 15
+                H_count, xedges, yedges = np.histogram2d(all_x_data, all_y_data, bins=[xb, yb])
+                if c_k:
+                    c_data = [r[c_k] for r in filtered_results]
+                    H_sum, _, _ = np.histogram2d(all_x_data, all_y_data, bins=[xb, yb], weights=c_data)
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        Z = np.true_divide(H_sum, H_count)
+                else:
+                    Z = H_count.copy()
+                Z[H_count == 0] = np.nan
 
-            im = self.ax.imshow(Z.T, cmap='plasma', aspect='auto', origin='lower')
+            im = self.ax.imshow(Z.T, cmap='plasma', aspect='auto', origin='lower', interpolation='nearest')
 
-            x_centers = (xedges[:-1] + xedges[1:]) / 2
-            y_centers = (yedges[:-1] + yedges[1:]) / 2
-            
-            self.ax.set_xticks(np.arange(len(x_centers)))
-            self.ax.set_yticks(np.arange(len(y_centers)))
-            
-            def format_label(val): return f"{val:.2f}"
-            self.ax.set_xticklabels([format_label(v) for v in x_centers], rotation=45, ha='right', fontsize=8)
-            self.ax.set_yticklabels([format_label(v) for v in y_centers], fontsize=8)
-            
+            if x_is_cat:
+                self.ax.set_xticks(np.arange(len(x_categories)))
+                self.ax.set_xticklabels(x_categories, rotation=45, ha='right', fontsize=8)
+            elif 'xedges' in dir():
+                x_centers = (xedges[:-1] + xedges[1:]) / 2
+                self.ax.set_xticks(np.arange(len(x_centers)))
+                self.ax.set_xticklabels([f"{v:.2f}" for v in x_centers], rotation=45, ha='right', fontsize=8)
+            elif 'x_edges' in dir():
+                x_centers = (x_edges[:-1] + x_edges[1:]) / 2
+                self.ax.set_xticks(np.arange(len(x_centers)))
+                self.ax.set_xticklabels([f"{v:.2f}" for v in x_centers], rotation=45, ha='right', fontsize=8)
+
+            if y_is_cat:
+                self.ax.set_yticks(np.arange(len(y_categories)))
+                self.ax.set_yticklabels(y_categories, fontsize=8)
+            elif 'yedges' in dir():
+                y_centers = (yedges[:-1] + yedges[1:]) / 2
+                self.ax.set_yticks(np.arange(len(y_centers)))
+                self.ax.set_yticklabels([f"{v:.2f}" for v in y_centers], fontsize=8)
+            elif 'y_edges' in dir():
+                y_centers = (y_edges[:-1] + y_edges[1:]) / 2
+                self.ax.set_yticks(np.arange(len(y_centers)))
+                self.ax.set_yticklabels([f"{v:.2f}" for v in y_centers], fontsize=8)
+
             cbar = self.fig.colorbar(im, ax=self.ax)
             cbar.set_label(f"Moyenne : {c_selection}" if c_k else "Densité (Nombre de réseaux)", fontsize=9)
 
-        else:
+        else: # Nuage de points
             c_selection = self.c_var.get()
-            
             if c_selection == "Cibles" or c_selection == "Aucune":
                 unique_targets = list(dict.fromkeys([r['target_name'] for r in filtered_results]))
                 colors = ['#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f1c40f', '#e67e22', '#1abc9c', '#34495e']
-                
                 for i, t_name in enumerate(unique_targets):
                     t_res = [r for r in filtered_results if r['target_name'] == t_name]
-                    x_d = [r[x_k] for r in t_res]
-                    y_d = [r[y_k] for r in t_res]
-                    sc = self.ax.scatter(x_d, y_d, label=t_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
+                    sc = self.ax.scatter([r[x_k] for r in t_res], [r[y_k] for r in t_res], label=t_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
                     sc.custom_data = t_res 
                     self.scatters.append(sc)
-
             elif c_selection == "Fichiers":
                 unique_files = list(dict.fromkeys([r['filename'] for r in filtered_results]))
                 colors = ['#e67e22', '#1abc9c', '#e74c3c', '#3498db', '#9b59b6', '#34495e', '#2ecc71', '#f1c40f']
-                
                 for i, f_name in enumerate(unique_files):
                     f_res = [r for r in filtered_results if r['filename'] == f_name]
-                    x_d = [r[x_k] for r in f_res]
-                    y_d = [r[y_k] for r in f_res]
-                    sc = self.ax.scatter(x_d, y_d, label=f_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
+                    sc = self.ax.scatter([r[x_k] for r in f_res], [r[y_k] for r in f_res], label=f_name, color=colors[i % len(colors)], edgecolors='black', alpha=0.8, s=60, picker=5)
                     sc.custom_data = f_res 
                     self.scatters.append(sc)
-
             else:
                 c_k = self.keys_map[c_selection]
                 c_data = [r[c_k] for r in filtered_results]
@@ -808,12 +1063,11 @@ class AnalysisWindow(tk.Frame):
                 cbar = self.fig.colorbar(sc, ax=self.ax)
                 cbar.set_label(c_selection, fontsize=9)
 
-        if y_k and plot_type != "Histogramme (1D)":
+        if y_k and plot_type not in ("Histogramme/Barres", "Boîte à moustaches"):
             x_min, x_max = self.ax.get_xlim()
             y_min, y_max = self.ax.get_ylim()
             x_span = x_max - x_min
-            y_span = y_max - y_min
-
+            
             if self.show_mean_y_var.get():
                 mean_y = np.mean(all_y_data)
                 self.ax.axhline(mean_y, color='red', linestyle='--', alpha=0.8, label='Moy. Y')
@@ -836,9 +1090,8 @@ class AnalysisWindow(tk.Frame):
             y_pos = self.ax.get_ylim()[0] + (self.ax.get_ylim()[1] - self.ax.get_ylim()[0])*0.8
             self.ax.text(median_x, y_pos, f' Méd. X: {median_x:.2f}', color='purple', fontsize=8, fontweight='bold', ha='right', rotation=90)
 
-        if plot_type != "Histogramme (1D)":
-            if y_k:
-                self.ax.set_ylabel(self.y_var.get(), fontweight='bold')
+        if plot_type not in ("Histogramme/Barres", "Boîte à moustaches") and y_k:
+            self.ax.set_ylabel(self.y_var.get(), fontweight='bold')
                 
         self.ax.set_xlabel(self.x_var.get(), fontweight='bold')
         self.ax.grid(True, linestyle='--', alpha=0.6)

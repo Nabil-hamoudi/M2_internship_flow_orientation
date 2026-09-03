@@ -85,12 +85,18 @@ def compute_flow_edmonds_karp(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.compute_flow_edmonds_karp(p_reseau)
 
+def compute_flow_elevation_prioritaire_ff(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.compute_flow_elevation_prioritaire_ff(p_reseau)
+
+def compute_flow_edmonds_karp_elevation(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.compute_flow_edmonds_karp_elevation(p_reseau)
 
 def create_epanet_project(input_file):
     projet = lib.init_inp_file(ensure_bytes(
         input_file), b"epanet_file.log", b"resultat.res")
     return ffi.new("EN_Project *", projet)
-
 
 def randomise_demande(p_projet):
     lib.randomise_demande(p_projet)
@@ -142,3 +148,44 @@ def free_project(p_projet):
 def compute_satisfaction_rate(p_reseau):
     p_reseau = get_graph_pointer(p_reseau)
     lib.compute_satisfaction_rate(p_reseau)
+
+def compute_pression_statique(p_reseau, mode=0):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.compute_pression_statique(p_reseau, mode)
+
+def orienter_arcs_par_pression(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_arcs_par_pression(p_reseau)
+
+def tester_orientation_flow(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.tester_orientation_flow(p_reseau)
+
+
+def orienter_st_harmonique(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_st_harmonique(p_reseau)
+
+def annuler_circuits_flot(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.annuler_circuits_flot(p_reseau)
+
+def orienter_elevation_dfs(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_elevation_dfs(p_reseau)
+
+def orienter_elevation_descendante(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_elevation_descendante(p_reseau)
+
+def orienter_aleatoire_dfs(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_aleatoire_dfs(p_reseau)
+
+def orienter_dag_aleatoire(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_dag_aleatoire(p_reseau)
+
+def orienter_completement_aleatoire(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.orienter_completement_aleatoire(p_reseau)
