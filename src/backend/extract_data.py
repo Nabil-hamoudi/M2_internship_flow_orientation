@@ -122,6 +122,9 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
     ref_dp_pos_zero, ref_dp_neg = analyse_tools.get_pressure_diff_stats(graph_ref)
     tgt_dp_pos_zero, tgt_dp_neg = analyse_tools.get_pressure_diff_stats(graph_tgt)
 
+    ref_de_pos_zero, ref_de_neg = analyse_tools.get_elevation_diff_stats(graph_ref)
+    tgt_de_pos_zero, tgt_de_neg = analyse_tools.get_elevation_diff_stats(graph_tgt)
+
     # 2. Calculs altérant l'état du graphe (À FAIRE EN DERNIER)
     # Exécuté uniquement sur la cible car la topologie est identique à la référence.
     min_cut_val = analyse_tools.compute_min_cut(graph_tgt)
@@ -150,5 +153,9 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
         "ref_dp_neg": ref_dp_neg,
         "tgt_dp_pos_zero": tgt_dp_pos_zero,
         "tgt_dp_neg": tgt_dp_neg,
+        "ref_de_pos_zero": ref_de_pos_zero,
+        "ref_de_neg": ref_de_neg,
+        "tgt_de_pos_zero": tgt_de_pos_zero,
+        "tgt_de_neg": tgt_de_neg,
         "min_cut": min_cut_val # <-- Ajout au dictionnaire final
     }

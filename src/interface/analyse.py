@@ -72,6 +72,10 @@ class AnalysisWindow(tk.Frame):
             "% Arcs dP < 0 (Réf)": "ref_dp_neg",
             "% Arcs dP >= 0 (Cible)": "tgt_dp_pos_zero",
             "% Arcs dP < 0 (Cible)": "tgt_dp_neg",
+            "% Arcs dE >= 0 (Réf)": "ref_de_pos_zero",
+            "% Arcs dE < 0 (Réf)": "ref_de_neg",
+            "% Arcs dE >= 0 (Cible)": "tgt_de_pos_zero",
+            "% Arcs dE < 0 (Cible)": "tgt_de_neg",
             "Valeur de la Coupe Min": "min_cut"
         }
 

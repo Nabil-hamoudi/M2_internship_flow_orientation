@@ -221,9 +221,7 @@ void set_time_step(EN_Project* ph, long pas_temp) {
 }
 
 void modif_multiplicateur(EN_Project* ph, double multiplicateur) {
-	double mult;
-	EN_getoption(*ph, EN_DEMANDMULT, &mult);
-	EN_setoption(*ph, EN_DEMANDMULT, mult * multiplicateur);
+	EN_setoption(*ph, EN_DEMANDMULT, multiplicateur);
 }
 
 void comput_flow(EN_Project* ph) {

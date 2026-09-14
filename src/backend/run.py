@@ -125,7 +125,7 @@ def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src,
         if choix_dem in demandes_epanet:
             ffi_wrapper.get_epanet_fulldemande(projet, reseau)
 
-    ffi_wrapper.modif_multiplicateur(projet, 1.0 / max(mult_epa, 1e-6))
+    ffi_wrapper.modif_multiplicateur(projet, 1.0)
     return reseau
 
 def run_single_simulation(filepath, choix_algo, choix_ori, choix_capa, choix_dem, 
@@ -200,8 +200,7 @@ def run_analysis_worker(task_args):
                                     t_grid = tgt['grid']
                                     for t_ecart in t_grid["ecart_type"]:
                                         for t_epa in t_grid["m_epa"]:
-                                            ratio = max(t_epa, 1e-6) / max(r_epa, 1e-6)
-                                            ffi_wrapper.modif_multiplicateur(projet, ratio)
+                                            ffi_wrapper.modif_multiplicateur(projet, max(t_epa, 1e-6))
 
                                             for t_dst in t_grid["m_dst"]:
                                                 for t_src in t_grid["m_src"]:
@@ -223,11 +222,9 @@ def run_analysis_worker(task_args):
 
                                                             ffi_wrapper.free_graph(graph_tgt)
 
-                                            ffi_wrapper.modif_multiplicateur(projet, 1.0 / ratio)
-
                                 ffi_wrapper.free_graph(graph_ref)
 
-                ffi_wrapper.modif_multiplicateur(projet, 1.0 / max(r_epa, 1e-6))
+                ffi_wrapper.modif_multiplicateur(projet, 1.0)
 
     finally:
         if projet is not None:

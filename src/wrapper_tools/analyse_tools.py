@@ -338,6 +338,40 @@ def get_pressure_diff_stats(p_reseau):
     return (pos_zero / nb_tuyaux) * 100.0, (neg / nb_tuyaux) * 100.0
 
 
+def get_elevation_diff_stats(p_reseau):
+    """
+    Parcourt l'ensemble des tuyaux pour calculer la proportion de différence d'élévation
+    entre la source et la destination (dE = E_src - E_dst).
+    Retourne les pourcentages : (Positif ou Zéro, Négatif)
+    """
+    p_reseau = get_graph_pointer(p_reseau)
+    nb_tuyaux = p_reseau.nb_arcs // 2
+    
+    pos_zero = 0
+    neg = 0
+    
+    if nb_tuyaux == 0:
+        return 0.0, 0.0
+        
+    idx_aller = 0
+    for k in range(nb_tuyaux):
+        src = p_reseau.arcs[idx_aller].source
+        dst = p_reseau.arcs[idx_aller].destination
+        
+        de = src.elevation - dst.elevation
+        
+        # dE >= 0 (Positif ou Zéro)
+        if de >= 0.0:
+            pos_zero += 1
+        # dE < 0 (Négatif)
+        else:
+            neg += 1
+            
+        idx_aller += 2
+            
+    return (pos_zero / nb_tuyaux) * 100.0, (neg / nb_tuyaux) * 100.0
+
+
 def get_wape_pression(graph_ref, graph_sim):
     """Calcule l'Erreur Absolue Pondérée (WAPE) pour la pression des sommets."""
     gref = get_graph_pointer(graph_ref)
