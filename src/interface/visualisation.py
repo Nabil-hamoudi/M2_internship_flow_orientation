@@ -21,6 +21,7 @@ class InternalWindow(tk.Frame):
         self.app_manager = app_manager
         self.current_filepath = None
         self.nodes, self.edges = [], []
+        self.profile_windows = []
         self.scale = 1.0
         self.pan_x = self.pan_y = 0.0
         self.last_mouse_x = self.last_mouse_y = 0
@@ -124,6 +125,12 @@ class InternalWindow(tk.Frame):
             ent.pack(fill=tk.X, pady=(0, 5))
             self.inputs[label] = ent
             
+        self.tank_as_reservoir_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            self.sidebar, text="Tanks comme Réservoirs", variable=self.tank_as_reservoir_var,
+            bg="#ecf0f1", font=("Segoe UI", 8)
+        ).pack(fill=tk.X, pady=(0, 5), anchor="w")
+            
         tk.Label(self.sidebar, text="Colorer les arcs par :", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
         self.color_var = tk.StringVar(value="Aucune")
         cb_color = ttk.Combobox(self.sidebar, textvariable=self.color_var, values=COULEURS_ARC, state="readonly")
@@ -162,7 +169,8 @@ class InternalWindow(tk.Frame):
         self.grip = tk.Label(self.status_bar, text="◢", bg="#bdc3c7", fg="#7f8c8d", cursor="bottom_right_corner")
         self.grip.pack(side=tk.RIGHT, anchor="se", padx=2)
         
-        tk.Button(self.sidebar, text="Options des Couleurs", bg="#9b59b6", fg="white", font=("Segoe UI", 8, "bold"), command=self.open_color_settings).pack(fill=tk.X, pady=(5, 10))
+        tk.Button(self.sidebar, text="Options des Couleurs", bg="#9b59b6", fg="white", font=("Segoe UI", 8, "bold"), command=self.open_color_settings).pack(fill=tk.X, pady=(5, 5))
+        tk.Button(self.sidebar, text="📊 Profil Statistique", bg="#16a085", fg="white", font=("Segoe UI", 8, "bold"), command=self.open_network_profile).pack(fill=tk.X, pady=(0, 10))
 
     def setup_bindings(self):
         self.title_bar.bind("<ButtonPress-1>", self.start_drag_window)
@@ -185,7 +193,8 @@ class InternalWindow(tk.Frame):
             results = run_single_simulation(
                 filepath=filepath, choix_algo="EPANET", choix_ori="Aucune", 
                 choix_capa="Vitesse Max", choix_dem="Inchanger", 
-                p_src=1.0, p_dem=1.0, v_res=2.0, v_arc=2.0, mult_epa=1.0, portion=1.0, ecart_type=0.3
+                p_src=1.0, p_dem=1.0, v_res=2.0, v_arc=2.0, mult_epa=1.0, portion=1.0, ecart_type=0.3,
+                tank_as_reservoir=self.tank_as_reservoir_var.get()
             )
             self.nodes = results["nodes"]
             self.edges = results["edges"]
@@ -193,6 +202,7 @@ class InternalWindow(tk.Frame):
             self.update_dashboard(results["metrics"])
             self.status_label.config(text="Fichier chargé.")
             self.reset_view()
+            self._refresh_profile_windows(results["metrics"])
         except Exception as e:
             messagebox.showerror("Erreur de chargement", str(e))
 
@@ -228,7 +238,8 @@ class InternalWindow(tk.Frame):
                 filepath=self.current_filepath, choix_algo=choix_algo, 
                 choix_ori=choix_ori, choix_capa=choix_capa, choix_dem=choix_dem, 
                 p_src=p_src, p_dem=p_dem, v_res=v_res, v_arc=v_arc, 
-                mult_epa=mult, portion=portion_val, seed=seed_val, ecart_type=ecart_val
+                mult_epa=mult, portion=portion_val, seed=seed_val, ecart_type=ecart_val,
+                tank_as_reservoir=self.tank_as_reservoir_var.get()
             )
 
             self.nodes = results["nodes"]
@@ -237,6 +248,8 @@ class InternalWindow(tk.Frame):
             
             self.update_dashboard(results["metrics"])
             self.draw_graph()
+
+            self._refresh_profile_windows(results["metrics"])
 
             self.status_label.config(text=f"Simulation terminée ({choix_algo})")
 
@@ -670,3 +683,56 @@ class InternalWindow(tk.Frame):
         msg += f"  • Rugosité (Roughness) : {e['roughness']}\n"
         msg += f"  • Vitesse calculée : {e['velocity']:f} m/s"
         messagebox.showinfo(f"Double Conduite #{idx}", msg)
+
+    def open_network_profile(self):
+        """Ouvre une fenêtre de profil statistique pour le réseau actuellement chargé."""
+        if not self.nodes:
+            messagebox.showwarning(
+                "Aucun réseau",
+                "Veuillez d'abord charger et simuler un réseau."
+            )
+            return
+
+        from src.interface.network_profile_window import NetworkProfileWindow
+
+        metrics = self._extract_current_metrics()
+
+        title = f"Profil — {self.title_label.cget('text').replace('|  ', '')}"
+        profile_win = NetworkProfileWindow(
+            self.app_manager.workspace, self.app_manager,
+            nodes=self.nodes, edges=self.edges,
+            metrics=metrics, title=title
+        )
+        self.app_manager.windows.append(profile_win)
+        self.profile_windows.append(profile_win)
+
+    def _extract_current_metrics(self):
+        """Extrait les métriques actuelles depuis les labels du dashboard."""
+        metrics = {"efficacite": 0.0, "demande_globale": 0.0}
+        try:
+            eff_text = self.res_labels["eff"].cget("text")
+            if "N/A" not in eff_text:
+                metrics["efficacite"] = float(eff_text.split(":")[1].strip().replace("%", ""))
+            dem_text = self.res_labels["dem"].cget("text")
+            if "N/A" not in dem_text:
+                metrics["demande_globale"] = float(dem_text.split(":")[1].strip().replace(" L/min", ""))
+        except (ValueError, IndexError):
+            pass
+        return metrics
+
+    def _refresh_profile_windows(self, metrics=None):
+        """Rafraîchit toutes les fenêtres de profil liées après une simulation."""
+        if metrics is None:
+            metrics = self._extract_current_metrics()
+        else:
+            # Convertir depuis le format extract_dashboard_metrics
+            metrics = {
+                "efficacite": metrics.get("efficacite", 0.0),
+                "demande_globale": metrics.get("demande_globale", 0.0),
+            }
+
+        # Nettoyer les fenêtres fermées
+        self.profile_windows = [w for w in self.profile_windows if w.winfo_exists()]
+
+        for win in self.profile_windows:
+            win.refresh_data(self.nodes, self.edges, metrics)

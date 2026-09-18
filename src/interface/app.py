@@ -1,8 +1,9 @@
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from src.wrapper_tools import analyse_tools
 from src.interface.visualisation import InternalWindow
 from src.interface.analyse import AnalysisWindow
+from src.interface.network_profile_window import NetworkProfileWindow
 
 
 class AppManager(tk.Tk):
@@ -38,6 +39,9 @@ class AppManager(tk.Tk):
             label="Nouvelle fenêtre d'Analyse (Grid Search)...", command=self.open_analysis)
         menu_analysis.add_command(
             label="Ouvrir une analyse existante (.json)...", command=self.load_analysis_window)
+        menu_analysis.add_separator()
+        menu_analysis.add_command(
+            label="Profil Statistique du Réseau actif", command=self.open_network_profile)
         menubar.add_cascade(label="Analyse", menu=menu_analysis)
 
         self.config(menu=menubar)
@@ -59,6 +63,30 @@ class AppManager(tk.Tk):
             win = AnalysisWindow(self.workspace, self)
             self.windows.append(win)
             win.load_analysis(pre_filepath=path)
+
+    def open_network_profile(self):
+        """Ouvre le profil statistique du réseau visualisé dans la fenêtre active."""
+        win = self.active_window
+        if not isinstance(win, InternalWindow) or not win.nodes:
+            messagebox.showwarning(
+                "Aucun réseau actif",
+                "Veuillez d'abord ouvrir et simuler un réseau dans une fenêtre de visualisation."
+            )
+            return
+
+        from src.backend.extract_data import extract_dashboard_metrics
+        metrics = {
+            "efficacite": float(win.res_labels["eff"].cget("text").split(":")[1].strip().replace("%", "")) if "N/A" not in win.res_labels["eff"].cget("text") else 0.0,
+            "demande_globale": float(win.res_labels["dem"].cget("text").split(":")[1].strip().replace(" L/min", "")) if "N/A" not in win.res_labels["dem"].cget("text") else 0.0,
+        }
+
+        title = f"Profil — {win.title_label.cget('text').replace('|  ', '')}"
+        profile_win = NetworkProfileWindow(
+            self.workspace, self,
+            nodes=win.nodes, edges=win.edges,
+            metrics=metrics, title=title
+        )
+        self.windows.append(profile_win)
 
     def set_active_window(self, window):
         self.active_window = window

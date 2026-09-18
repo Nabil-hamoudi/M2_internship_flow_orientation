@@ -6,7 +6,9 @@ from src.backend.extract_data import (
     extract_data, extract_dashboard_metrics, compute_metrics, DEMANDES
 )
 
-def compute_algo(reseau, choix, m_src, m_dst):
+def compute_algo(reseau, choix, m_src, m_dst, tank_as_reservoir=False):
+    if tank_as_reservoir:
+        ffi_wrapper.treat_tanks_as_reservoirs(reseau)
     if choix == "Ford-Fulkerson":
         ffi_wrapper.ajout_source_destination(reseau)
         ffi_wrapper.ajout_capacite_demande(reseau, m_dst)
@@ -77,19 +79,11 @@ def compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion=1.0):
     elif choix_ori == "Orientation completement aleatoire":
         ffi_wrapper.orienter_completement_aleatoire(reseau)
 
-def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa=1.0, portion=1.0, ecart_type=0.3):
+def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src, p_dem, v_res, v_arc, mult_epa=1.0, portion=1.0, ecart_type=0.3, tank_as_reservoir=False):
     ffi_wrapper.modif_multiplicateur(projet, max(mult_epa, 1e-6))
     reseau = None
 
     demandes_epanet = [d for d in DEMANDES if d == "EPANET"]
-    if choix_dem == "Uniforme":
-        ffi_wrapper.randomise_demande(projet)
-    elif choix_dem == "Normale":
-        ffi_wrapper.randomise_demande_normale(projet, ecart_type)
-    elif choix_dem == "Exponentielle":
-        ffi_wrapper.randomise_demande_exponentielle(projet, ecart_type)
-    elif choix_dem == "Toutes à 1":
-        ffi_wrapper.set_demande_un(projet)
 
     if choix_algo == "EPANET":
         ffi_wrapper.compute_epanet(projet)
@@ -115,12 +109,12 @@ def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src,
             ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
         else:
             ffi_wrapper.fix_capacite_flow(reseau, v_res, v_arc)
-            compute_algo(reseau, choix_capa, p_src, p_dem)
+            compute_algo(reseau, choix_capa, p_src, p_dem, tank_as_reservoir)
             ffi_wrapper.fix_capacite_flow_calcule(reseau)
             ffi_wrapper.nullifier_flow(reseau)
 
         compute_orientation(projet, reseau, choix_ori, p_src, p_dem, portion)
-        compute_algo(reseau, choix_algo, p_src, p_dem)
+        compute_algo(reseau, choix_algo, p_src, p_dem, tank_as_reservoir)
         
         if choix_dem in demandes_epanet:
             ffi_wrapper.get_epanet_fulldemande(projet, reseau)
@@ -130,7 +124,7 @@ def compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, p_src,
 
 def run_single_simulation(filepath, choix_algo, choix_ori, choix_capa, choix_dem, 
                           p_src, p_dem, v_res, v_arc, mult_epa=1.0, portion=1.0, 
-                          seed=None, ecart_type=0.3):
+                          seed=None, ecart_type=0.3, tank_as_reservoir=False):
     projet = ffi_wrapper.create_epanet_project(filepath)
 
     if seed is not None:
@@ -146,7 +140,7 @@ def run_single_simulation(filepath, choix_algo, choix_ori, choix_capa, choix_dem
         ffi_wrapper.set_demande_un(projet)
 
     reseau = compute_network(projet, choix_algo, choix_ori, choix_capa, choix_dem, 
-                             p_src, p_dem, v_res, v_arc, mult_epa, portion, ecart_type)
+                             p_src, p_dem, v_res, v_arc, mult_epa, portion, ecart_type, tank_as_reservoir)
                              
     nodes, edges, bounds = extract_data(reseau)
     metrics = extract_dashboard_metrics(reseau)
@@ -192,15 +186,16 @@ def run_analysis_worker(task_args):
                             for r_p in ref_grid["portion"]:
 
                                 if params['ref_algo'] == "EPANET":
-                                    graph_ref = compute_network(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, r_v, r_v, 1.0, r_p, r_ecart)
+                                    graph_ref = compute_network(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], 1.0, 1.0, r_v, r_v, r_epa, r_p, r_ecart, params.get('ref_tank', False))
                                 else:
-                                    graph_ref = compute_network(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], r_src, r_dst, r_v, r_v, 1.0, r_p, r_ecart)
+                                    graph_ref = compute_network(projet, params['ref_algo'], params['ref_ori'], params['ref_capa'], params['ref_dem'], r_src, r_dst, r_v, r_v, r_epa, r_p, r_ecart, params.get('ref_tank', False))
 
                                 for tgt in params['targets']:
                                     t_grid = tgt['grid']
                                     for t_ecart in t_grid["ecart_type"]:
                                         for t_epa in t_grid["m_epa"]:
-                                            ffi_wrapper.modif_multiplicateur(projet, max(t_epa, 1e-6))
+                                            actual_t_epa = r_epa * t_epa
+                                            ffi_wrapper.modif_multiplicateur(projet, max(actual_t_epa, 1e-6))
 
                                             for t_dst in t_grid["m_dst"]:
                                                 for t_src in t_grid["m_src"]:
@@ -208,14 +203,14 @@ def run_analysis_worker(task_args):
                                                         for t_p in t_grid["portion"]:
 
                                                             if tgt['algo'] == "EPANET":
-                                                                graph_tgt = compute_network(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, t_v, t_v, 1.0, t_p, t_ecart)
+                                                                graph_tgt = compute_network(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], 1.0, 1.0, t_v, t_v, actual_t_epa, t_p, t_ecart, tgt.get('tank_as_reservoir', False))
                                                             else:
-                                                                graph_tgt = compute_network(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], t_src, t_dst, t_v, t_v, 1.0, t_p, t_ecart)
+                                                                graph_tgt = compute_network(projet, tgt['algo'], tgt['ori'], tgt['capa'], tgt['dem'], t_src, t_dst, t_v, t_v, actual_t_epa, t_p, t_ecart, tgt.get('tank_as_reservoir', False))
 
                                                             metrics = compute_metrics(
                                                                 graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
                                                                 r_src, r_epa, r_dst, r_v, r_p, r_ecart,
-                                                                t_src, t_epa, t_dst, t_v, t_p, t_ecart
+                                                                t_src, actual_t_epa, t_dst, t_v, t_p, t_ecart
                                                             )
                                                             metrics["rand_ecart"] = rand_ecart
                                                             results.append(metrics)

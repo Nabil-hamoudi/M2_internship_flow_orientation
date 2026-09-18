@@ -45,6 +45,9 @@ def get_arc_flow(p_reseau, index):
 def get_arc_non_oriente_flow(p_reseau, index_aller, index_retour):
     return lib.get_flow_non_oriente(get_graph_pointer(p_reseau), index_aller, index_retour)
 
+def get_ratio_arcs_low_flow(p_reseau, seuil=1.0):
+    return lib.get_ratio_arcs_low_flow(get_graph_pointer(p_reseau), seuil)
+
 def get_arc_non_oriente_velocity(p_reseau, index_aller, index_retour):
     return lib.get_velocity_non_oriente(get_graph_pointer(p_reseau), index_aller, index_retour)
 
@@ -61,6 +64,14 @@ def get_arc_source_elevation(p_reseau, index):
 def get_arc_dest_elevation(p_reseau, index):
     s = get_graph_pointer(p_reseau).arcs[index].destination
     return s.elevation
+
+def get_arc_source_pression(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].source
+    return s.pression
+
+def get_arc_dest_pression(p_reseau, index):
+    s = get_graph_pointer(p_reseau).arcs[index].destination
+    return s.pression
 
 def get_arc_source_position(p_reseau, index):
     s = get_graph_pointer(p_reseau).arcs[index].source

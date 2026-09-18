@@ -23,6 +23,10 @@ void delete_source_destination(struct graph* reseau);
 
 void ajout_source_destination(struct graph* reseau);
 
+void treat_tanks_as_reservoirs(struct graph* reseau);
+
+double get_ratio_arcs_low_flow(struct graph* reseau, double seuil);
+
 void ajout_capacite_demande(struct graph* reseau, float proportion_demande);
 
 void ajout_capacite_source(struct graph* reseau, float proportion_source);

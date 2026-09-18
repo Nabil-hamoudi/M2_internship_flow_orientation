@@ -59,8 +59,11 @@ class AnalysisWindow(tk.Frame):
             "Erreur ponderee Flow (%)": "wp",
             "Erreur Absolue ponderee Pression (WAPE %)": "wape_p",
             "Erreur ponderee Pression (%)": "wp_p",
-            "Distance de Jaccard (%)": "jaccard",
-            "Portion Arcs Flow Nul Réf (%)": "arc_nul_ref",
+            "Indice de Jaccard (Dominance %)": "jaccard",
+            "Coupe Minimale": "min_cut",
+            "% Arc Flow < 1 L/min (Réf)": "ratio_arcs_low_flow_ref",
+            "% Arc Flow < 1 L/min (Cible)": "ratio_arcs_low_flow_tgt",
+            "Ratio Arcs Nuls (Réf) %": "arc_nul_ref",
             "Portion Arcs Flow Non Nul Réf (%)": "arc_non_nul_ref",
             "Portion Arcs Flow Nul Cible (%)": "arc_nul_cible",
             "Portion Arcs Flow Non Nul Cible (%)": "arc_non_nul_cible",
@@ -242,6 +245,9 @@ class AnalysisWindow(tk.Frame):
         tk.Label(self.ref_f, text="Orientation:", bg="#ecf0f1", font=("Segoe UI", 8)).pack(anchor="w")
         self.ref_ori = tk.StringVar(value="Aucune")
         ttk.Combobox(self.ref_f, textvariable=self.ref_ori, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+
+        self.ref_tank = tk.BooleanVar(value=False)
+        tk.Checkbutton(self.ref_f, text="Tanks comme Réservoirs", variable=self.ref_tank, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w").pack(fill=tk.X, padx=5, pady=2)
 
         tk.Label(self.ref_f, text="Balayage Réf", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
         self.ref_ranges = self.create_grid_ui(self.ref_f)
@@ -446,11 +452,14 @@ class AnalysisWindow(tk.Frame):
         ori_var = tk.StringVar(value="Aucune")
         ttk.Combobox(tgt_f, textvariable=ori_var, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
         
+        tank_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(tgt_f, text="Tanks comme Réservoirs", variable=tank_var, bg="#ecf0f1", font=("Segoe UI", 8), anchor="w").pack(fill=tk.X, padx=5, pady=2)
+        
         tk.Label(tgt_f, text="Balayage Cible", bg="#ecf0f1", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5,0))
         ranges = self.create_grid_ui(tgt_f)
 
         self.target_ui_rows.append({
-            'frame': tgt_f, 'header_f': header_f, 'btn_delete': btn_del, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid, 'ranges': ranges
+            'frame': tgt_f, 'header_f': header_f, 'btn_delete': btn_del, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid, 'ranges': ranges, 'tank_as_reservoir': tank_var
         })
 
     def setup_bindings(self):
@@ -554,7 +563,7 @@ class AnalysisWindow(tk.Frame):
         if paths:
             self._prepare_and_load(paths)
 
-    def _extract_grid(self, ranges):
+    def _extract_grid(self, ranges, ref_ranges=None):
         def safe_float(v, default=1.0):
             try: return float(v.get())
             except: return default
@@ -562,13 +571,23 @@ class AnalysisWindow(tk.Frame):
             try: return max(1, int(v.get()))
             except: return default
 
+        def get_range(key, default_val):
+            # Check if user entered anything in this range
+            if ranges[key][0].get().strip() or ranges[key][1].get().strip():
+                return np.linspace(safe_float(ranges[key][0], default_val), safe_float(ranges[key][1], default_val), safe_int(ranges[key][2], 1))
+            elif ref_ranges:
+                # Inherit from reference range if available
+                return np.linspace(safe_float(ref_ranges[key][0], default_val), safe_float(ref_ranges[key][1], default_val), safe_int(ref_ranges[key][2], 1))
+            else:
+                return np.linspace(default_val, default_val, 1)
+
         return {
-            "m_src": np.linspace(safe_float(ranges["m_src"][0]), safe_float(ranges["m_src"][1]), safe_int(ranges["m_src"][2])),
-            "m_epa": np.linspace(safe_float(ranges["m_dst_epa"][0]), safe_float(ranges["m_dst_epa"][1]), safe_int(ranges["m_dst_epa"][2])),
-            "m_dst": np.linspace(safe_float(ranges["m_dst"][0]), safe_float(ranges["m_dst"][1]), safe_int(ranges["m_dst"][2])),
-            "vitesse": np.linspace(safe_float(ranges["vitesse"][0], 2.0), safe_float(ranges["vitesse"][1], 2.0), safe_int(ranges["vitesse"][2])),
-            "portion": np.linspace(safe_float(ranges["portion"][0], 1.0), safe_float(ranges["portion"][1], 1.0), safe_int(ranges["portion"][2])),
-            "ecart_type": np.linspace(safe_float(ranges["ecart_type"][0], 0.3), safe_float(ranges["ecart_type"][1], 0.3), safe_int(ranges["ecart_type"][2]))
+            "m_src": get_range("m_src", 1.0),
+            "m_epa": get_range("m_dst_epa", 1.0),
+            "m_dst": get_range("m_dst", 1.0),
+            "vitesse": get_range("vitesse", 2.0),
+            "portion": get_range("portion", 1.0),
+            "ecart_type": get_range("ecart_type", 0.3)
         }
 
     def _extract_analysis_params(self):
@@ -583,7 +602,8 @@ class AnalysisWindow(tk.Frame):
                 "algo": row['algo'].get(), "ori": row['ori'].get(),
                 "capa": row['capa'].get(), "dem": row['dem'].get(),
                 "var": row['var'],
-                "grid": self._extract_grid(row['ranges'])
+                "tank_as_reservoir": row['tank_as_reservoir'].get(),
+                "grid": self._extract_grid(row['ranges'], self.ref_ranges)
             })
             
             if row['var'].get():
@@ -591,7 +611,8 @@ class AnalysisWindow(tk.Frame):
                     "uid": row['uid'], "name": name,
                     "algo": row['algo'].get(), "ori": row['ori'].get(),
                     "capa": row['capa'].get(), "dem": row['dem'].get(),
-                    "grid": self._extract_grid(row['ranges'])
+                    "tank_as_reservoir": row['tank_as_reservoir'].get(),
+                    "grid": self._extract_grid(row['ranges'], self.ref_ranges)
                 })
 
         # Utilise un seul scénario de base afin que le backend puisse continuer de fonctionner
@@ -602,6 +623,7 @@ class AnalysisWindow(tk.Frame):
             "ref_capa": self.ref_capa.get(),
             "ref_ori": self.ref_ori.get(),
             "ref_dem": self.ref_dem.get(),
+            "ref_tank": self.ref_tank.get(),
             "ref_grid": self._extract_grid(self.ref_ranges),
             "randomizations": randomizations,
             "targets": clean_targets_for_mp
@@ -958,7 +980,8 @@ class AnalysisWindow(tk.Frame):
                     with np.errstate(divide='ignore', invalid='ignore'):
                         Z = np.true_divide(H_sum, H_count)
                 else:
-                    Z = H_count.copy()
+                    total_count = np.sum(H_count)
+                    Z = (H_count / total_count * 100.0) if total_count > 0 else H_count.copy()
                 Z[H_count == 0] = np.nan
             elif x_is_cat:
                 nb_x = len(x_categories)
@@ -977,7 +1000,8 @@ class AnalysisWindow(tk.Frame):
                     with np.errstate(divide='ignore', invalid='ignore'):
                         Z = np.true_divide(H_sum, H_count)
                 else:
-                    Z = H_count.copy()
+                    total_count = np.sum(H_count)
+                    Z = (H_count / total_count * 100.0) if total_count > 0 else H_count.copy()
                 Z[H_count == 0] = np.nan
             elif y_is_cat:
                 nb_y = len(y_categories)
@@ -996,7 +1020,8 @@ class AnalysisWindow(tk.Frame):
                     with np.errstate(divide='ignore', invalid='ignore'):
                         Z = np.true_divide(H_sum, H_count)
                 else:
-                    Z = H_count.copy()
+                    total_count = np.sum(H_count)
+                    Z = (H_count / total_count * 100.0) if total_count > 0 else H_count.copy()
                 Z[H_count == 0] = np.nan
             else:
                 xb = x_bins if x_mode == "edges" or isinstance(x_bins, int) else 15
@@ -1008,7 +1033,8 @@ class AnalysisWindow(tk.Frame):
                     with np.errstate(divide='ignore', invalid='ignore'):
                         Z = np.true_divide(H_sum, H_count)
                 else:
-                    Z = H_count.copy()
+                    total_count = np.sum(H_count)
+                    Z = (H_count / total_count * 100.0) if total_count > 0 else H_count.copy()
                 Z[H_count == 0] = np.nan
 
             im = self.ax.imshow(Z.T, cmap='plasma', aspect='auto', origin='lower', interpolation='nearest')
@@ -1038,7 +1064,7 @@ class AnalysisWindow(tk.Frame):
                 self.ax.set_yticklabels([f"{v:.2f}" for v in y_centers], fontsize=8)
 
             cbar = self.fig.colorbar(im, ax=self.ax)
-            cbar.set_label(f"Moyenne : {c_selection}" if c_k else "Densité (Nombre de réseaux)", fontsize=9)
+            cbar.set_label(f"Moyenne : {c_selection}" if c_k else "Pourcentage (%)", fontsize=9)
 
         else: # Nuage de points
             c_selection = self.c_var.get()

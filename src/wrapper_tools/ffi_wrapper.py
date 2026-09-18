@@ -66,6 +66,15 @@ def ajout_capacite_demande(p_reseau, proportion_demande):
     lib.ajout_capacite_demande(p_reseau, proportion_demande)
 
 
+def get_ratio_arcs_low_flow(p_reseau, seuil=1.0):
+    p_reseau = get_graph_pointer(p_reseau)
+    return lib.get_ratio_arcs_low_flow(p_reseau, seuil)
+
+def treat_tanks_as_reservoirs(p_reseau):
+    p_reseau = get_graph_pointer(p_reseau)
+    lib.treat_tanks_as_reservoirs(p_reseau)
+
+
 def ajout_capacite_source(p_reseau, proportion_source):
     p_reseau = get_graph_pointer(p_reseau)
     lib.ajout_capacite_source(p_reseau, proportion_source)

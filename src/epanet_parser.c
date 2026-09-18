@@ -91,33 +91,173 @@ int get_time_pattern(EN_Project* ph, int id_node, int patern_id, long t_ecoule) 
 }
 
 /*
-* Revoir pour ajouter multiplicateur pattern
-*/
-void randomise_demande(EN_Project* ph) {
-	nbr nb_nodes;
-	double demand, demande_global = 0, demande_global_rand = 0;
-	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
-	for (nbr i = 1; i <= nb_nodes; i++) {
-		EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
+ * Helper: compute total effective demand (with patterns, WITHOUT demande_multiplier)
+ * and mark which nodes have positive demand.
+ * has_demand must be a zero-initialized array of size nb_nodes.
+ */
+static double compute_total_demand_patterns(EN_Project* ph, int* has_demand, int nb_nodes) {
+	long t_fin = get_time(ph);
+	double total_demand = 0.0;
 
-		if (demand > 0.0) {
-			demande_global += demand;
-			EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * (((flotant) rand() / RAND_MAX) * 2));
-			EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-			demande_global_rand += demand;
+	for (nbr i = 1; i <= nb_nodes; i++) {
+		int num_demands = 0;
+		EN_getnumdemands(*ph, i, &num_demands);
+
+		double node_demand = 0.0;
+		for (int cat = 1; cat <= num_demands; cat++) {
+			double base_demand = 0.0;
+			int pattern_id = 0;
+			double pattern_multiplier = 1.0;
+
+			EN_getbasedemand(*ph, i, cat, &base_demand);
+			EN_getdemandpattern(*ph, i, cat, &pattern_id);
+
+			if (pattern_id > 0) {
+				int pattern_stamp = get_time_pattern(ph, i, pattern_id, t_fin);
+				EN_getpatternvalue(*ph, pattern_id, pattern_stamp, &pattern_multiplier);
+			}
+
+			double effective = base_demand * pattern_multiplier;
+			if (effective > 0.0) {
+				node_demand += effective;
+			}
+		}
+
+		if (node_demand > 0.0) {
+			total_demand += node_demand;
+			has_demand[i-1] = 1;
 		}
 	}
 
-	if (demande_global_rand > 0.0) {
-		double ratio_normalisation = demande_global / demande_global_rand;
-		for (nbr i = 1; i <= nb_nodes; i++) {
-			EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-			if (demand > 0.0) {
-				demand = demand * ratio_normalisation;
-				EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand);
+	return total_demand;
+}
+
+/*
+ * Helper: redistribute total_demand according to weights, clear all patterns.
+ * For demanding nodes: set category 1 to new demand, zero out extra categories.
+ */
+static void redistribute_demands(EN_Project* ph, int* has_demand, double* weights, double weight_sum, double total_demand, int nb_nodes) {
+	for (nbr i = 1; i <= nb_nodes; i++) {
+		int num_demands = 0;
+		EN_getnumdemands(*ph, i, &num_demands);
+
+		if (has_demand[i-1]) {
+			double new_demand = (weights[i-1] / weight_sum) * total_demand;
+
+			if (num_demands >= 1) {
+				EN_setbasedemand(*ph, i, 1, new_demand);
+				EN_setdemandpattern(*ph, i, 1, 0);
+			}
+			for (int cat = 2; cat <= num_demands; cat++) {
+				EN_setbasedemand(*ph, i, cat, 0.0);
+				EN_setdemandpattern(*ph, i, cat, 0);
 			}
 		}
 	}
+}
+
+void randomise_demande(EN_Project* ph) {
+	nbr nb_nodes;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+
+	int *has_demand = calloc(nb_nodes, sizeof(int));
+	double *weights = calloc(nb_nodes, sizeof(double));
+
+	double total_demand = compute_total_demand_patterns(ph, has_demand, nb_nodes);
+
+	if (total_demand <= 0.0) {
+		free(has_demand);
+		free(weights);
+		return;
+	}
+
+	double weight_sum = 0.0;
+	for (nbr i = 0; i < nb_nodes; i++) {
+		if (has_demand[i]) {
+			double w = ((double)rand() / RAND_MAX);
+			if (w < 1e-9) w = 1e-9;
+			weights[i] = w;
+			weight_sum += w;
+		}
+	}
+
+	redistribute_demands(ph, has_demand, weights, weight_sum, total_demand, nb_nodes);
+
+	free(has_demand);
+	free(weights);
+}
+
+void randomise_demande_normale(EN_Project* ph, double ecart_type) {
+	nbr nb_nodes;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+
+	int *has_demand = calloc(nb_nodes, sizeof(int));
+	double *weights = calloc(nb_nodes, sizeof(double));
+
+	double total_demand = compute_total_demand_patterns(ph, has_demand, nb_nodes);
+
+	if (total_demand <= 0.0) {
+		free(has_demand);
+		free(weights);
+		return;
+	}
+
+	double weight_sum = 0.0;
+	for (nbr i = 0; i < nb_nodes; i++) {
+		if (has_demand[i]) {
+			double u1 = ((double) rand() / RAND_MAX);
+			double u2 = ((double) rand() / RAND_MAX);
+			if (u1 == 0.0) u1 = 1e-9;
+
+			double z0 = sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
+			double w = 1.0 + ecart_type * z0;
+			if (w < 1e-9) w = 1e-9;
+
+			weights[i] = w;
+			weight_sum += w;
+		}
+	}
+
+	redistribute_demands(ph, has_demand, weights, weight_sum, total_demand, nb_nodes);
+
+	free(has_demand);
+	free(weights);
+}
+
+void randomise_demande_exponentielle(EN_Project* ph, double ecart_type) {
+	nbr nb_nodes;
+	EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
+
+	int *has_demand = calloc(nb_nodes, sizeof(int));
+	double *weights = calloc(nb_nodes, sizeof(double));
+
+	double total_demand = compute_total_demand_patterns(ph, has_demand, nb_nodes);
+
+	if (total_demand <= 0.0) {
+		free(has_demand);
+		free(weights);
+		return;
+	}
+
+	double weight_sum = 0.0;
+	for (nbr i = 0; i < nb_nodes; i++) {
+		if (has_demand[i]) {
+			double u = ((double) rand() / RAND_MAX);
+			if (u == 0.0) u = 1e-9;
+
+			double x = -log(u);
+			double w = 1.0 + ecart_type * (x - 1.0);
+			if (w < 1e-9) w = 1e-9;
+
+			weights[i] = w;
+			weight_sum += w;
+		}
+	}
+
+	redistribute_demands(ph, has_demand, weights, weight_sum, total_demand, nb_nodes);
+
+	free(has_demand);
+	free(weights);
 }
 
 void set_demande_un(EN_Project* ph) {
@@ -137,81 +277,6 @@ void set_demande_un(EN_Project* ph) {
             }
 
             EN_setdemandpattern(*ph, i, cat, 0); 
-        }
-    }
-}
-
-void randomise_demande_normale(EN_Project* ph, double ecart_type) {
-    nbr nb_nodes;
-    double demand, demande_global = 0, demande_global_rand = 0;
-    EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
-    
-    for (nbr i = 1; i <= nb_nodes; i++) {
-        EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-
-        if (demand > 0.0) {
-            demande_global += demand;
-            
-            double u1 = ((double) rand() / RAND_MAX);
-            double u2 = ((double) rand() / RAND_MAX);
-            if (u1 == 0.0) u1 = 1e-9;
-            
-            double z0 = sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
-            
-            double facteur = 1.0 + ecart_type * z0;
-            if (facteur < 0.0) facteur = 0.0;
-            
-            EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * facteur);
-            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-            demande_global_rand += demand;
-        }
-    }
-
-    if (demande_global_rand > 0.0) {
-        double ratio_normalisation = demande_global / demande_global_rand;
-        for (nbr i = 1; i <= nb_nodes; i++) {
-            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-            if (demand > 0.0) {
-                demand = demand * ratio_normalisation;
-                EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand);
-            }
-        }
-    }
-}
-
-void randomise_demande_exponentielle(EN_Project* ph, double ecart_type) {
-    nbr nb_nodes;
-    double demand, demande_global = 0, demande_global_rand = 0;
-    EN_getcount(*ph, EN_NODECOUNT, &nb_nodes);
-    
-    for (nbr i = 1; i <= nb_nodes; i++) {
-        EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-
-        if (demand > 0.0) {
-            demande_global += demand;
-            
-            double u = ((double) rand() / RAND_MAX);
-            if (u == 0.0) u = 1e-9;
-            
-            double x = -log(u);
-            
-            double facteur = 1.0 + ecart_type * (x - 1.0);
-            if (facteur < 0.0) facteur = 0.0;
-            
-            EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand * facteur);
-            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-            demande_global_rand += demand;
-        }
-    }
-
-    if (demande_global_rand > 0.0) {
-        double ratio_normalisation = demande_global / demande_global_rand;
-        for (nbr i = 1; i <= nb_nodes; i++) {
-            EN_getnodevalue(*ph, i, EN_BASEDEMAND, &demand);
-            if (demand > 0.0) {
-                demand = demand * ratio_normalisation;
-                EN_setnodevalue(*ph, i, EN_BASEDEMAND, demand);
-            }
         }
     }
 }
