@@ -224,6 +224,29 @@ void delete_source_destination(struct graph* reseau) {
 
 }
 
+void treat_tanks_as_reservoirs(struct graph* reseau) {
+	for (int i = 0; i < reseau->nb_sommet; i++) {
+		if (reseau->sommets[i].type == TANK) {
+			reseau->sommets[i].demande = 0.0;
+		}
+	}
+}
+
+double get_ratio_arcs_low_flow(struct graph* reseau, double seuil) {
+	int total_arcs = reseau->nb_arcs / 2;
+	if (total_arcs == 0) return 0.0;
+	int low_flow_count = 0;
+	for (int i = 0; i < reseau->nb_arcs; i += 2) {
+		double flow_aller = reseau->arcs[i].flow;
+		double flow_retour = reseau->arcs[i+1].flow;
+		double total_flow = (flow_aller > flow_retour) ? (flow_aller - flow_retour) : (flow_retour - flow_aller);
+		if (total_flow < seuil) {
+			low_flow_count++;
+		}
+	}
+	return ((double)low_flow_count / (double)total_arcs) * 100.0;
+}
+
 void ajout_source_destination(struct graph* reseau) {
 	nbr degree_source = 0, degree_destination = 0;
 	for (int i=0; i < reseau->nb_sommet ; i++) {

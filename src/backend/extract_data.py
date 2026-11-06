@@ -56,9 +56,11 @@ def extract_data(reseau):
         x2, y2 = analyse_tools.get_arc_dest_position(reseau, idx_aller)
 
         diff_elevation = analyse_tools.get_arc_dest_elevation(reseau, idx_aller) - analyse_tools.get_arc_source_elevation(reseau, idx_aller)
+        diff_pression = analyse_tools.get_arc_dest_pression(reseau, idx_aller) - analyse_tools.get_arc_source_pression(reseau, idx_aller)
 
         if idx_retour in arcs_actifs:
             diff_elevation = diff_elevation * -1
+            diff_pression = diff_pression * -1
             x1, y1, x2, y2 = x2, y2, x1, y1
 
 
@@ -74,23 +76,28 @@ def extract_data(reseau):
             'cap_aller': analyse_tools.get_arc_capacite(reseau, idx_aller),
             'flow_retour': analyse_tools.get_arc_flow(reseau, idx_retour), 
             'cap_retour': analyse_tools.get_arc_capacite(reseau, idx_retour),
-            'diff_elevation': diff_elevation
+            'diff_elevation': diff_elevation,
+            'diff_pression': diff_pression
         })
         
     return nodes, edges, (min_x, max_x, min_y, max_y)
 
 def extract_dashboard_metrics(reseau):
     """Extrait les métriques globales d'un réseau unique (Utilisé par la Visualisation)."""
+    ratio_arcs_low_flow = analyse_tools.get_ratio_arcs_low_flow(reseau, 1.0)
+
     return {
         "efficacite": analyse_tools.get_efficacite(reseau) * 100,
         "pression_requise": analyse_tools.get_pression_requise(reseau),
         "exposant_pression": analyse_tools.get_exposant_pression(reseau),
-        "demande_globale": analyse_tools.get_demande_global(reseau)
+        "demande_globale": analyse_tools.get_demande_global(reseau),
+        "ratio_arcs_low_flow": ratio_arcs_low_flow
     }
 
 def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
                     r_src, r_epa, r_dst, r_v, r_p, r_ecart,
-                    t_src, t_epa, t_dst, t_v, t_p, t_ecart):
+                    t_src, t_epa, t_dst, t_v, t_p, t_ecart,
+                    compute_min_cut_flag=True):
     """Calcule les métriques comparatives entre le graphe de référence et le graphe cible."""
     # 1. Calculs nécessitant l'état intact des flux et capacités
     wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
@@ -122,9 +129,18 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
     ref_dp_pos_zero, ref_dp_neg = analyse_tools.get_pressure_diff_stats(graph_ref)
     tgt_dp_pos_zero, tgt_dp_neg = analyse_tools.get_pressure_diff_stats(graph_tgt)
 
+    ref_de_pos_zero, ref_de_neg = analyse_tools.get_elevation_diff_stats(graph_ref)
+    tgt_de_pos_zero, tgt_de_neg = analyse_tools.get_elevation_diff_stats(graph_tgt)
+
     # 2. Calculs altérant l'état du graphe (À FAIRE EN DERNIER)
     # Exécuté uniquement sur la cible car la topologie est identique à la référence.
-    min_cut_val = analyse_tools.compute_min_cut(graph_tgt)
+    if compute_min_cut_flag:
+        min_cut_val = analyse_tools.compute_min_cut(graph_tgt)
+    else:
+        min_cut_val = 0
+
+    ratio_arcs_low_flow_tgt = analyse_tools.get_ratio_arcs_low_flow(graph_tgt, 1.0)
+    ratio_arcs_low_flow_ref = analyse_tools.get_ratio_arcs_low_flow(graph_ref, 1.0)
 
     return {
         "filepath": filepath, "filename": filename, "rand_type": rand_type, "seed": seed_val,
@@ -150,5 +166,11 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
         "ref_dp_neg": ref_dp_neg,
         "tgt_dp_pos_zero": tgt_dp_pos_zero,
         "tgt_dp_neg": tgt_dp_neg,
-        "min_cut": min_cut_val # <-- Ajout au dictionnaire final
+        "ref_de_pos_zero": ref_de_pos_zero,
+        "ref_de_neg": ref_de_neg,
+        "tgt_de_pos_zero": tgt_de_pos_zero,
+        "tgt_de_neg": tgt_de_neg,
+        "min_cut": min_cut_val, # <-- Ajout au dictionnaire final
+        "ratio_arcs_low_flow_tgt": ratio_arcs_low_flow_tgt,
+        "ratio_arcs_low_flow_ref": ratio_arcs_low_flow_ref
     }
