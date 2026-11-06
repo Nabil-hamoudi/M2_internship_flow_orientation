@@ -96,7 +96,8 @@ def extract_dashboard_metrics(reseau):
 
 def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, seed_val, tgt, 
                     r_src, r_epa, r_dst, r_v, r_p, r_ecart,
-                    t_src, t_epa, t_dst, t_v, t_p, t_ecart):
+                    t_src, t_epa, t_dst, t_v, t_p, t_ecart,
+                    compute_min_cut_flag=True):
     """Calcule les métriques comparatives entre le graphe de référence et le graphe cible."""
     # 1. Calculs nécessitant l'état intact des flux et capacités
     wape = analyse_tools.get_wape_flow(graph_ref, graph_tgt) * 100
@@ -133,7 +134,10 @@ def compute_metrics(graph_ref, graph_tgt, filepath, filename, flags, rand_type, 
 
     # 2. Calculs altérant l'état du graphe (À FAIRE EN DERNIER)
     # Exécuté uniquement sur la cible car la topologie est identique à la référence.
-    min_cut_val = analyse_tools.compute_min_cut(graph_tgt)
+    if compute_min_cut_flag:
+        min_cut_val = analyse_tools.compute_min_cut(graph_tgt)
+    else:
+        min_cut_val = 0
 
     ratio_arcs_low_flow_tgt = analyse_tools.get_ratio_arcs_low_flow(graph_tgt, 1.0)
     ratio_arcs_low_flow_ref = analyse_tools.get_ratio_arcs_low_flow(graph_ref, 1.0)

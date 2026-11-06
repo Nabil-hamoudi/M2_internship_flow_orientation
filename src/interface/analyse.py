@@ -7,6 +7,7 @@ import json
 import concurrent.futures
 import threading
 import queue
+import time
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -14,7 +15,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from src.wrapper_tools import ffi_wrapper
 from src.creation_dataset import prepare_dataset
 
-from src.backend.run import run_analysis_worker
+from src.backend.run import run_analysis_worker, build_cartesian_tasks, distribute_tasks, build_iterative_tasks, run_iterative_worker
 from src.backend.extract_data import (
     ALGORITHMES, ORIENTATIONS, CAPACITES, DEMANDES, 
     FILETYPES_INP, FILETYPES_JSON, NpEncoder
@@ -259,8 +260,12 @@ class AnalysisWindow(tk.Frame):
         self.target_ui_rows = []
         self.target_configs = []
 
-        self.btn_add_target = tk.Button(self.sidebar, text="➕ Ajouter un Modèle Cible", bg="#f39c12", font=("Segoe UI", 8, "bold"), command=self.add_target_ui)
-        self.btn_add_target.pack(fill=tk.X, pady=(0, 5))
+        btn_target_frame = tk.Frame(self.sidebar, bg="#ecf0f1")
+        btn_target_frame.pack(fill=tk.X, pady=(0, 5))
+        self.btn_add_target = tk.Button(btn_target_frame, text="➕ Cible", bg="#f39c12", font=("Segoe UI", 8, "bold"), command=self.add_target_ui)
+        self.btn_add_target.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        self.btn_add_iterative_target = tk.Button(btn_target_frame, text="🔄 Cible Itérative", bg="#e67e22", fg="white", font=("Segoe UI", 8, "bold"), command=self.add_iterative_target_ui)
+        self.btn_add_iterative_target.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(2, 0))
         
         self.add_target_ui()
 
@@ -389,6 +394,7 @@ class AnalysisWindow(tk.Frame):
         self.btn_load_dir.config(state=state)
         self.btn_run.config(state=state)
         self.btn_add_target.config(state=state)
+        self.btn_add_iterative_target.config(state=state)
         
         if freeze:
             self.btn_reset.pack(fill=tk.X, pady=(0, 5))
@@ -429,9 +435,7 @@ class AnalysisWindow(tk.Frame):
             if hasattr(self, 'target_configs'):
                 self.target_configs = [c for c in self.target_configs if c['uid'] != current_uid]
             self.update_plot()
-
-            for i, r in enumerate(self.target_ui_rows):
-                r['frame'].config(text=f"Modèle Cible {i+1}")
+            self._renumber_targets()
 
         btn_del = tk.Button(header_f, text="❌", fg="red", bg="#ecf0f1", bd=0, font=("Segoe UI", 8), command=remove_self)
         btn_del.pack(side=tk.RIGHT)
@@ -460,6 +464,80 @@ class AnalysisWindow(tk.Frame):
 
         self.target_ui_rows.append({
             'frame': tgt_f, 'header_f': header_f, 'btn_delete': btn_del, 'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var, 'var': var, 'uid': current_uid, 'ranges': ranges, 'tank_as_reservoir': tank_var
+        })
+
+    def _renumber_targets(self):
+        """Renumérote les cibles après suppression."""
+        normal_idx = 0
+        iter_idx = 0
+        for r in self.target_ui_rows:
+            if r.get('is_iterative', False):
+                iter_idx += 1
+                r['frame'].config(text=f"🔄 Cible Itérative {iter_idx}")
+            else:
+                normal_idx += 1
+                r['frame'].config(text=f"Modèle Cible {normal_idx}")
+
+    def add_iterative_target_ui(self):
+        """Ajoute une cible itérative qui compare chaque pas avec la référence ET le pas précédent."""
+        self.target_counter += 1
+        uid_ref = self.target_counter
+        self.target_counter += 1
+        uid_prev = self.target_counter
+
+        iter_count = sum(1 for r in self.target_ui_rows if r.get('is_iterative', False)) + 1
+
+        tgt_f = tk.LabelFrame(self.targets_container, text=f"🔄 Cible Itérative {iter_count}", bg="#fdf2e9", font=("Segoe UI", 8, "bold"), fg="#d35400")
+        tgt_f.pack(fill=tk.X, pady=5)
+
+        header_f = tk.Frame(tgt_f, bg="#fdf2e9")
+        header_f.pack(fill=tk.X, padx=5, pady=(2, 5))
+
+        var = tk.BooleanVar(value=True)
+        tk.Checkbutton(header_f, text="Afficher", variable=var, bg="#fdf2e9", font=("Segoe UI", 8, "bold"), fg="#d35400", command=self.update_plot).pack(side=tk.LEFT)
+
+        captured_uid_ref = uid_ref
+        captured_uid_prev = uid_prev
+
+        def remove_self():
+            tgt_f.destroy()
+            self.target_ui_rows = [r for r in self.target_ui_rows if r['uid'] != captured_uid_ref]
+            if hasattr(self, 'target_configs'):
+                self.target_configs = [c for c in self.target_configs if c['uid'] not in (captured_uid_ref, captured_uid_prev)]
+            self.update_plot()
+            self._renumber_targets()
+
+        btn_del = tk.Button(header_f, text="❌", fg="red", bg="#fdf2e9", bd=0, font=("Segoe UI", 8), command=remove_self)
+        btn_del.pack(side=tk.RIGHT)
+
+        tk.Label(tgt_f, text="Algo:", bg="#fdf2e9", font=("Segoe UI", 8)).pack(anchor="w")
+        algo_var = tk.StringVar(value="Edmonds-Karp")
+        ttk.Combobox(tgt_f, textvariable=algo_var, values=ALGORITHMES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+
+        tk.Label(tgt_f, text="Demande:", bg="#fdf2e9", font=("Segoe UI", 8)).pack(anchor="w")
+        dem_var = tk.StringVar(value="Inchanger")
+        ttk.Combobox(tgt_f, textvariable=dem_var, values=DEMANDES, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+
+        tk.Label(tgt_f, text="Capacite:", bg="#fdf2e9", font=("Segoe UI", 8)).pack(anchor="w")
+        capa_var = tk.StringVar(value="Vitesse Max")
+        ttk.Combobox(tgt_f, textvariable=capa_var, values=CAPACITES, state="readonly").pack(fill=tk.X, padx=5, pady=2)
+
+        tk.Label(tgt_f, text="Orientation:", bg="#fdf2e9", font=("Segoe UI", 8)).pack(anchor="w")
+        ori_var = tk.StringVar(value="Aucune")
+        ttk.Combobox(tgt_f, textvariable=ori_var, values=ORIENTATIONS, state="readonly").pack(fill=tk.X, padx=5, pady=(2, 5))
+
+        tank_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(tgt_f, text="Tanks comme Réservoirs", variable=tank_var, bg="#fdf2e9", font=("Segoe UI", 8), anchor="w").pack(fill=tk.X, padx=5, pady=2)
+
+        tk.Label(tgt_f, text="Balayage Itératif", bg="#fdf2e9", font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 0))
+        ranges = self.create_grid_ui(tgt_f)
+
+        self.target_ui_rows.append({
+            'frame': tgt_f, 'header_f': header_f, 'btn_delete': btn_del,
+            'algo': algo_var, 'dem': dem_var, 'capa': capa_var, 'ori': ori_var,
+            'var': var, 'uid': uid_ref, 'uid_prev': uid_prev,
+            'ranges': ranges, 'tank_as_reservoir': tank_var,
+            'is_iterative': True
         })
 
     def setup_bindings(self):
@@ -593,27 +671,49 @@ class AnalysisWindow(tk.Frame):
     def _extract_analysis_params(self):
         self.target_configs = []
         clean_targets_for_mp = []
+        clean_iterative_for_mp = []
+        
+        normal_idx = 0
+        iter_idx = 0
         
         for i, row in enumerate(self.target_ui_rows):
-            name = f"C{i+1}: {row['algo'].get()[:4]} | O:{row['ori'].get()[:4]} | C:{row['capa'].get()[:4]}"
+            is_iter = row.get('is_iterative', False)
             
-            self.target_configs.append({
+            if is_iter:
+                iter_idx += 1
+                name = f"CI{iter_idx}: {row['algo'].get()[:4]} | O:{row['ori'].get()[:4]} | C:{row['capa'].get()[:4]}"
+            else:
+                normal_idx += 1
+                name = f"C{normal_idx}: {row['algo'].get()[:4]} | O:{row['ori'].get()[:4]} | C:{row['capa'].get()[:4]}"
+            
+            config = {
                 "uid": row['uid'], "name": name,
                 "algo": row['algo'].get(), "ori": row['ori'].get(),
                 "capa": row['capa'].get(), "dem": row['dem'].get(),
                 "var": row['var'],
                 "tank_as_reservoir": row['tank_as_reservoir'].get(),
-                "grid": self._extract_grid(row['ranges'], self.ref_ranges)
-            })
+                "grid": self._extract_grid(row['ranges'], self.ref_ranges),
+                "is_iterative": is_iter
+            }
+            if is_iter:
+                config['uid_prev'] = row['uid_prev']
+            
+            self.target_configs.append(config)
             
             if row['var'].get():
-                clean_targets_for_mp.append({
+                mp_entry = {
                     "uid": row['uid'], "name": name,
                     "algo": row['algo'].get(), "ori": row['ori'].get(),
                     "capa": row['capa'].get(), "dem": row['dem'].get(),
                     "tank_as_reservoir": row['tank_as_reservoir'].get(),
                     "grid": self._extract_grid(row['ranges'], self.ref_ranges)
-                })
+                }
+                
+                if is_iter:
+                    mp_entry['uid_prev'] = row['uid_prev']
+                    clean_iterative_for_mp.append(mp_entry)
+                else:
+                    clean_targets_for_mp.append(mp_entry)
 
         # Utilise un seul scénario de base afin que le backend puisse continuer de fonctionner
         randomizations = [("Aucune", None, 0.0)]
@@ -626,54 +726,91 @@ class AnalysisWindow(tk.Frame):
             "ref_tank": self.ref_tank.get(),
             "ref_grid": self._extract_grid(self.ref_ranges),
             "randomizations": randomizations,
-            "targets": clean_targets_for_mp
+            "targets": clean_targets_for_mp,
+            "iterative_targets": clean_iterative_for_mp
         }
 
     def run_analysis(self):
         params = self._extract_analysis_params()
         num_procs = int(self.num_proc_var.get())
         
-        ref_grid = params['ref_grid']
-        ref_iters = len(ref_grid["ecart_type"]) * len(ref_grid["m_epa"]) * len(ref_grid["m_dst"]) * len(ref_grid["m_src"]) * len(ref_grid["vitesse"]) * len(ref_grid["portion"])
-        
-        tgt_iters = 0
-        for t in params['targets']:
-            t_grid = t['grid']
-            tgt_iters += len(t_grid["ecart_type"]) * len(t_grid["m_epa"]) * len(t_grid["m_dst"]) * len(t_grid["m_src"]) * len(t_grid["vitesse"]) * len(t_grid["portion"])
-            
-        sims_per_task = ref_iters * tgt_iters
-        
-        tasks = []
+        # Construire les entrées fichier (filepath, filename, flags, rand_type, seed_val, rand_ecart)
         file_flags = {fp: prepare_dataset.file_contains_elements(fp) for fp in self.loaded_files}
+        file_entries = []
         for filepath in self.loaded_files:
             if not self.file_vars[filepath].get(): continue
             filename = os.path.basename(filepath)
             for rand_type, seed_val, rand_ecart in params['randomizations']:
-                tasks.append((filepath, filename, file_flags[filepath], rand_type, seed_val, rand_ecart, params))
+                file_entries.append((filepath, filename, file_flags[filepath], rand_type, seed_val, rand_ecart))
 
-        total_simulations = len(tasks) * sims_per_task
-
+        # Cibles standard (produit cartésien)
+        all_atomic_tasks = build_cartesian_tasks(file_entries, params)
+        
+        # Cibles itératives (séquences ordonnées)
+        all_iterative_sequences = build_iterative_tasks(file_entries, params)
+        
+        total_standard = len(all_atomic_tasks)
+        total_iterative_steps = sum(len(seq[8]) for seq in all_iterative_sequences)
+        total_simulations = total_standard + total_iterative_steps
+        
+        if total_simulations == 0:
+            messagebox.showwarning("Attention", "Aucune simulation à lancer. Vérifiez vos fichiers et cibles.")
+            return
+        
+        # Distribuer les tâches standard entre les workers
+        task_chunks = distribute_tasks(all_atomic_tasks, num_procs) if all_atomic_tasks else []
+        sims_per_chunk = [len(chunk) for chunk in task_chunks]
+        
         self.freeze_ui(True)
         self.progress_queue = queue.Queue()
         
         self.progress_bar.pack(side=tk.LEFT, padx=10)
         self.progress_bar["value"] = 0
         self.progress_bar["maximum"] = total_simulations
-        print(f"\n[--- Lancement de l'analyse : {total_simulations} simulations prévues ---]")
+        
+        # Calculate active workers for display
+        actual_workers = max(1, min(len(task_chunks) + len(all_iterative_sequences), num_procs))
+        
+        print(f"\n[--- Analyse : {total_simulations} sims ({total_standard} standard + {total_iterative_steps} itératives) ---]")
+        print(f"[--- Workers : {len(task_chunks)} standard + {len(all_iterative_sequences)} itératifs = {actual_workers} actifs (max {num_procs} configurés) ---]")
+        print(f"[--- Fichiers : {len(self.loaded_files)} | Cibles : {len(all_atomic_tasks)} standard tasks + {len(all_iterative_sequences)} itérative sequences ---]")
 
-        threading.Thread(target=self._run_multiprocessing, args=(tasks, num_procs, sims_per_task, total_simulations), daemon=True).start()
+        self.start_time = time.time()
+        self.actual_workers = actual_workers
+
+        threading.Thread(target=self._run_multiprocessing, args=(task_chunks, all_iterative_sequences, sims_per_chunk, total_simulations, num_procs), daemon=True).start()
         self.after(100, self._check_progress)
 
-    def _run_multiprocessing(self, tasks, num_procs, sims_per_task, total_simulations):
+    def _run_multiprocessing(self, task_chunks, iterative_sequences, sims_per_chunk, total_simulations, num_procs):
         all_results = []
         completed_sims = 0
         try:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=num_procs) as executor:
-                futures = [executor.submit(run_analysis_worker, t) for t in tasks]
+            total_workers = len(task_chunks) + len(iterative_sequences)
+            if total_workers == 0:
+                self.progress_queue.put(('done', []))
+                return
+            
+            with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(total_workers, num_procs))) as executor:
+                futures = {}
+                
+                # Soumettre les chunks d'analyse standard
+                for i, chunk in enumerate(task_chunks):
+                    f = executor.submit(run_analysis_worker, chunk)
+                    futures[f] = ('standard', sims_per_chunk[i])
+                
+                # Soumettre les séquences itératives (chacune = 1 tâche séquentielle)
+                for i, seq in enumerate(iterative_sequences):
+                    f = executor.submit(run_iterative_worker, seq)
+                    futures[f] = ('iterative', len(seq[8]))
+                
                 for f in concurrent.futures.as_completed(futures):
-                    all_results.extend(f.result())
-                    completed_sims += sims_per_task
-                    self.progress_queue.put(('step', completed_sims, total_simulations))
+                    task_type, task_count = futures[f]
+                    try:
+                        all_results.extend(f.result())
+                    except Exception as e:
+                        print(f"[X] Erreur dans un worker {task_type}: {e}")
+                    completed_sims += task_count
+                    self.progress_queue.put(('step', completed_sims, total_simulations, task_type))
                     
             self.progress_queue.put(('done', all_results))
         except Exception as e:
@@ -687,15 +824,24 @@ class AnalysisWindow(tk.Frame):
                 
                 if isinstance(msg, tuple) and msg[0] == 'step':
                     completed, total = msg[1], msg[2]
+                    task_type = msg[3] if len(msg) > 3 else "unknown"
+                    
+                    elapsed = time.time() - self.start_time
+                    velocity = completed / elapsed if elapsed > 0 else 0
+                    remaining = (total - completed) / velocity if velocity > 0 else 0
+                    
+                    elapsed_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+                    eta_str = time.strftime("%H:%M:%S", time.gmtime(remaining))
                     
                     self.progress_bar["value"] = completed
-                    self.status_label.config(text=f"Calcul en cours : {completed}/{total} simulation(s)...")
+                    self.status_label.config(text=f"Calcul en cours : {completed}/{total} | ⏱ {elapsed_str} | ⏳ ~{eta_str} | {velocity:.1f} sim/s")
                     
                     percent = (completed / total) * 100 if total > 0 else 0
                     bar_len = 40
                     filled_len = int(bar_len * completed // total) if total > 0 else 0
                     bar = '█' * filled_len + '-' * (bar_len - filled_len)
-                    sys.stdout.write(f'\rProgression |{bar}| {percent:.1f}% ({completed}/{total})')
+                    
+                    sys.stdout.write(f'\rProgression |{bar}| {percent:.1f}% ({completed}/{total}) | ⏱ {elapsed_str} | ⏳ ~{eta_str} | {velocity:.2f} sim/s | Workers: {self.actual_workers}/{int(self.num_proc_var.get())}')
                     sys.stdout.flush()
                     
                 elif isinstance(msg, tuple) and msg[0] == 'done':
